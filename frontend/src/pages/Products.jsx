@@ -78,6 +78,10 @@ export default function Products() {
 
   const openAddModal = () => {
     setEditingProduct(null);
+    const initialWh = warehouses[0]?.id || '';
+    const initialLocs = locations.filter((l) => l.warehouseId === initialWh);
+    const initialLoc = initialLocs[0]?.id || locations[0]?.id || '';
+
     setFormData({
       name: '',
       sku: '',
@@ -85,15 +89,20 @@ export default function Products() {
       uom: 'Units',
       reorderLevel: 10,
       unitCost: 0,
-      defaultWarehouseId: warehouses[0]?.id || '',
-      defaultLocationId: locations[0]?.id || '',
-      initialQuantity: 0,
+      defaultWarehouseId: initialWh,
+      defaultLocationId: initialLoc,
+      initialQuantity: 10,
+      stockQuantity: 10,
     });
     setModalOpen(true);
   };
 
   const openEditModal = (p) => {
     setEditingProduct(p);
+    const currentWh = p.defaultWarehouseId || warehouses[0]?.id || '';
+    const currentLocs = locations.filter((l) => l.warehouseId === currentWh);
+    const currentLoc = p.defaultLocationId || currentLocs[0]?.id || locations[0]?.id || '';
+
     setFormData({
       name: p.name,
       sku: p.sku,
@@ -101,8 +110,10 @@ export default function Products() {
       uom: p.uom,
       reorderLevel: p.reorderLevel,
       unitCost: p.unitCost,
-      defaultWarehouseId: p.defaultWarehouseId || '',
-      defaultLocationId: p.defaultLocationId || '',
+      defaultWarehouseId: currentWh,
+      defaultLocationId: currentLoc,
+      initialQuantity: p.onHand ?? 0,
+      stockQuantity: p.onHand ?? 0,
     });
     setModalOpen(true);
   };
@@ -166,7 +177,15 @@ export default function Products() {
       header: 'On Hand',
       key: 'onHand',
       render: (p) => (
-        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{p.onHand}</span>
+        <span
+          style={{
+            fontWeight: 700,
+            fontSize: '0.95rem',
+            color: p.onHand > 0 ? '#15803D' : '#DC2626',
+          }}
+        >
+          {p.onHand} {p.uom || 'Units'}
+        </span>
       ),
     },
     {
@@ -345,29 +364,51 @@ export default function Products() {
                 />
               </div>
 
-              {!editingProduct && (
-                <div className="form-group">
-                  <label className="form-label">Initial Opening Stock</label>
-                  <input
-                    type="number"
-                    min="0"
-                    className="form-input"
-                    value={formData.initialQuantity}
-                    onChange={(e) => setFormData({ ...formData, initialQuantity: e.target.value })}
-                  />
-                </div>
-              )}
+              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                <label className="form-label" style={{ fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{editingProduct ? 'Current On-Hand Stock (Units) *' : 'Initial Stock Quantity (Units) *'}</span>
+                  <span style={{ fontSize: '0.78rem', color: Number(formData.initialQuantity) > 0 ? '#15803D' : '#DC2626' }}>
+                    {Number(formData.initialQuantity) > 0 ? `● ${formData.initialQuantity} In Stock` : '● Out of Stock (0 units)'}
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  className="form-input"
+                  placeholder="e.g. 50"
+                  style={{ fontSize: '1rem', fontWeight: 600, borderColor: '#6366F1' }}
+                  value={formData.initialQuantity}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({
+                      ...formData,
+                      initialQuantity: val,
+                      stockQuantity: Number(val),
+                    });
+                  }}
+                  required
+                />
+                <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginTop: '4px' }}>
+                  Enter the total units available in inventory. This will directly reflect in the catalog and dashboard.
+                </span>
+              </div>
 
               <div className="form-group">
-                <label className="form-label">Default Warehouse</label>
+                <label className="form-label">Primary Warehouse *</label>
                 <select
                   className="form-select"
                   value={formData.defaultWarehouseId}
-                  onChange={(e) =>
-                    setFormData({ ...formData, defaultWarehouseId: e.target.value, defaultLocationId: '' })
-                  }
+                  onChange={(e) => {
+                    const selectedWh = e.target.value;
+                    const matchingLocs = locations.filter((l) => l.warehouseId === selectedWh);
+                    setFormData({
+                      ...formData,
+                      defaultWarehouseId: selectedWh,
+                      defaultLocationId: matchingLocs[0]?.id || '',
+                    });
+                  }}
+                  required
                 >
-                  <option value="">None</option>
                   {warehouses.map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.code} - {w.name}
@@ -377,19 +418,21 @@ export default function Products() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Default Location</label>
+                <label className="form-label">Storage Location *</label>
                 <select
                   className="form-select"
                   value={formData.defaultLocationId}
                   onChange={(e) => setFormData({ ...formData, defaultLocationId: e.target.value })}
-                  disabled={!formData.defaultWarehouseId}
+                  required
                 >
-                  <option value="">None</option>
                   {filteredLocations.map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.name}
                     </option>
                   ))}
+                  {filteredLocations.length === 0 && (
+                    <option value="">Default Location</option>
+                  )}
                 </select>
               </div>
             </div>
