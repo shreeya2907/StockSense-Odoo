@@ -5,7 +5,7 @@
   "description": "StockSense - Root wrapper for zero-config Render deployments",
   "scripts": {
     "postinstall": "cd backend && npm install",
-    "build": "cd backend && npm run build && cd ../frontend && npm install && npm run build",
+    "build": "cd backend && npm install && npm run build && cd ../frontend && npm install --include=dev && npm run build",
     "seed": "cd backend && npm run seed",
     "start": "cd backend && npm start"
   }
