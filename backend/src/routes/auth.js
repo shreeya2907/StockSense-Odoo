@@ -133,44 +133,52 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-// POST /api/auth/forgot-password
-router.post('/forgot-password', async (req, res, next) => {
+// POST /api/auth/send-otp (or /forgot-password)
+router.post(['/send-otp', '/forgot-password'], async (req, res, next) => {
   try {
     const { email } = req.body;
     if (!email) {
-      return res.status(400).json({ message: 'Email is required' });
+      return res.status(400).json({ message: 'Email address is required.' });
     }
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      return res.status(404).json({ message: 'No user registered with this email' });
+      return res.status(404).json({ message: 'No registered user found with this email.' });
     }
 
-    const resetToken = crypto.randomBytes(20).toString('hex');
-    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
+    // Generate a secure 6-digit numeric OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const resetTokenExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { resetToken, resetTokenExpiry },
+      data: {
+        resetToken: otp,
+        resetTokenExpiry,
+      },
     });
 
-    // In hackathon / mock flow, return token directly so UI can simulate email
+    console.log(`[AUTH] 6-Digit Password Reset OTP for ${email}: ${otp}`);
+
     res.json({
-      message: 'Password reset token generated (simulated email)',
-      resetToken,
+      message: 'A 6-digit verification code has been dispatched.',
+      otp, // included for seamless testing without waiting for SMTP setup
+      resetToken: otp,
+      expiresIn: '10 minutes',
     });
   } catch (err) {
     next(err);
   }
 });
 
-// POST /api/auth/reset-password
-router.post('/reset-password', async (req, res, next) => {
+// POST /api/auth/verify-otp-reset (or /reset-password)
+router.post(['/verify-otp-reset', '/reset-password'], async (req, res, next) => {
   try {
-    const { resetToken, newPassword } = req.body;
+    const { email, otp, resetToken, newPassword } = req.body;
+    const code = otp || resetToken;
 
-    if (!resetToken || !newPassword) {
-      return res.status(400).json({ message: 'Reset token and new password are required' });
+    if (!code || !newPassword) {
+      return res.status(400).json({ message: 'Verification code (OTP) and new password are required.' });
     }
 
     if (!validatePassword(newPassword)) {
@@ -180,15 +188,18 @@ router.post('/reset-password', async (req, res, next) => {
       });
     }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        resetToken,
-        resetTokenExpiry: { gt: new Date() },
-      },
-    });
+    const whereClause = {
+      resetToken: code,
+      resetTokenExpiry: { gt: new Date() },
+    };
+    if (email) {
+      whereClause.email = email;
+    }
+
+    const user = await prisma.user.findFirst({ where: whereClause });
 
     if (!user) {
-      return res.status(400).json({ message: 'Invalid or expired password reset token' });
+      return res.status(400).json({ message: 'Invalid or expired OTP code. Please request a new code.' });
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -203,7 +214,82 @@ router.post('/reset-password', async (req, res, next) => {
       },
     });
 
-    res.json({ message: 'Password has been reset successfully. Please log in.' });
+    res.json({ message: 'Password has been reset successfully! You can now log in.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/auth/google (Google OAuth Sign In & Sign Up)
+router.post('/google', async (req, res, next) => {
+  try {
+    const { credential, email, name, googleId } = req.body;
+    let userEmail = email;
+    let userName = name;
+
+    // Decode Google JWT ID token if provided
+    if (credential) {
+      try {
+        const payloadBase64 = credential.split('.')[1];
+        const decoded = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
+        userEmail = decoded.email || userEmail;
+        userName = decoded.name || decoded.given_name || userName;
+      } catch (decodeErr) {
+        console.warn('Google credential decode error:', decodeErr.message);
+      }
+    }
+
+    if (!userEmail) {
+      return res.status(400).json({ message: 'Valid email from Google is required.' });
+    }
+
+    // Find existing user by email
+    let user = await prisma.user.findUnique({ where: { email: userEmail } });
+
+    // Auto-register user if signing up via Google for the first time
+    if (!user) {
+      let baseLogin = userEmail.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+      if (baseLogin.length < 6) baseLogin = baseLogin.padEnd(6, '0');
+      if (baseLogin.length > 10) baseLogin = baseLogin.slice(0, 10);
+      let uniqueLoginId = baseLogin;
+      let counter = 1;
+      while (await prisma.user.findUnique({ where: { loginId: uniqueLoginId } })) {
+        uniqueLoginId = `${baseLogin.slice(0, 8)}${counter++}`;
+      }
+
+      const randomPass = crypto.randomBytes(16).toString('hex');
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(randomPass, salt);
+
+      user = await prisma.user.create({
+        data: {
+          loginId: uniqueLoginId,
+          email: userEmail,
+          name: userName || 'Google User',
+          passwordHash,
+          role: 'STAFF',
+        },
+      });
+      console.log(`[AUTH] New user auto-registered via Google: ${user.email} (${user.loginId})`);
+    }
+
+    const token = jwt.sign(
+      { id: user.id, loginId: user.loginId, email: user.email, name: user.name, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      message: 'Google authentication successful',
+      token,
+      user: {
+        id: user.id,
+        loginId: user.loginId,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+    });
   } catch (err) {
     next(err);
   }

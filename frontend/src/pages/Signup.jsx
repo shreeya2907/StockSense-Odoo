@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Boxes, Lock, User, Mail, ShieldCheck } from 'lucide-react';
+import { Boxes, Lock, User, Mail, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import api from '../api/axiosInstance';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
+import GoogleAuthButton from '../components/GoogleAuthButton';
 
 export default function Signup() {
   const [formData, setFormData] = useState({
@@ -79,14 +80,14 @@ export default function Signup() {
       <div
         style={{
           width: '100%',
-          maxWidth: '440px',
+          maxWidth: '450px',
           background: '#FFFFFF',
           borderRadius: '16px',
           padding: '36px',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
         }}
       >
-        <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '22px' }}>
           <div
             style={{
               display: 'inline-flex',
@@ -99,11 +100,11 @@ export default function Signup() {
           >
             <Boxes size={28} />
           </div>
-          <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#0F172A' }}>
-            Create Staff Account
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#0F172A', margin: 0 }}>
+            Create Account
           </h2>
-          <p style={{ color: '#64748B', fontSize: '0.84rem' }}>
-            Join the StockSense warehouse network
+          <p style={{ color: '#64748B', fontSize: '0.84rem', marginTop: '4px' }}>
+            Join the StockSense inventory operations network
           </p>
         </div>
 
@@ -123,13 +124,36 @@ export default function Signup() {
           </div>
         )}
 
+        {/* Google OAuth Sign Up */}
+        <div style={{ marginBottom: '18px' }}>
+          <GoogleAuthButton label="Sign up with Google" />
+        </div>
+
+        {/* Divider */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            margin: '18px 0',
+            gap: '12px',
+          }}
+        >
+          <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
+          <span style={{ fontSize: '0.74rem', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Or register with credentials
+          </span>
+          <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
+        </div>
+
         <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Login ID (6–12 chars)</label>
+          <div className="form-group" style={{ marginBottom: '12px' }}>
+            <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
+              Login ID (6–12 characters)
+            </label>
             <input
               type="text"
               className="form-input"
-              placeholder="e.g. staff_john"
+              placeholder="e.g. staff_alex"
               value={formData.loginId}
               onChange={(e) => setFormData({ ...formData, loginId: e.target.value })}
               required
@@ -137,12 +161,14 @@ export default function Signup() {
             {errors.loginId && <div className="form-error">{errors.loginId}</div>}
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Full Name</label>
+          <div className="form-group" style={{ marginBottom: '12px' }}>
+            <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
+              Full Name
+            </label>
             <input
               type="text"
               className="form-input"
-              placeholder="e.g. John Doe"
+              placeholder="e.g. Alex Johnson"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               required
@@ -150,12 +176,14 @@ export default function Signup() {
             {errors.name && <div className="form-error">{errors.name}</div>}
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Email Address</label>
+          <div className="form-group" style={{ marginBottom: '12px' }}>
+            <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
+              Email Address
+            </label>
             <input
               type="email"
               className="form-input"
-              placeholder="john@example.com"
+              placeholder="alex@example.com"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               required
@@ -163,8 +191,10 @@ export default function Signup() {
             {errors.email && <div className="form-error">{errors.email}</div>}
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Role</label>
+          <div className="form-group" style={{ marginBottom: '12px' }}>
+            <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
+              Role Assignment
+            </label>
             <select
               className="form-select"
               value={formData.role}
@@ -175,12 +205,14 @@ export default function Signup() {
             </select>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Password</label>
+          <div className="form-group" style={{ marginBottom: '16px' }}>
+            <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
+              Password
+            </label>
             <input
               type="password"
               className="form-input"
-              placeholder="Min 8 chars, uppercase, lowercase & special"
+              placeholder="Min 8 chars (1 uppercase, 1 lowercase, 1 special)"
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               required
@@ -191,16 +223,16 @@ export default function Signup() {
           <button
             type="submit"
             className="btn btn-primary"
-            style={{ width: '100%', marginTop: '10px', padding: '11px' }}
+            style={{ width: '100%', padding: '11px', fontWeight: 600, fontSize: '0.9rem' }}
             disabled={loading}
           >
-            {loading ? 'Registering...' : 'Complete Sign Up'}
+            {loading ? 'Creating Account...' : 'Complete Sign Up'}
           </button>
         </form>
 
         <div
           style={{
-            marginTop: '24px',
+            marginTop: '22px',
             textAlign: 'center',
             fontSize: '0.84rem',
             color: '#64748B',
