@@ -398,7 +398,12 @@ export default function Deliveries() {
             </div>
 
             <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h4 style={{ fontSize: '0.92rem', fontWeight: 600 }}>Delivery Product Lines</h4>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h4 style={{ fontSize: '0.92rem', fontWeight: 600 }}>Delivery Product Lines</h4>
+                <span style={{ fontSize: '0.74rem', background: '#DCFCE7', color: '#166534', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                  Smart Safety Audit Active
+                </span>
+              </div>
               <button type="button" className="btn btn-secondary btn-sm" onClick={addItemRow}>
                 <Plus size={14} /> Add Line
               </button>
@@ -410,61 +415,81 @@ export default function Deliveries() {
                   <th>Product *</th>
                   <th>Pick Location *</th>
                   <th style={{ width: '120px' }}>Quantity *</th>
-                  <th style={{ width: '50px' }}></th>
+                  <th style={{ width: '130px' }}>Safety Audit</th>
+                  <th style={{ width: '40px' }}></th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((row, idx) => (
-                  <tr key={idx}>
-                    <td>
-                      <select
-                        className="form-select"
-                        value={row.productId}
-                        onChange={(e) => updateItemRow(idx, 'productId', e.target.value)}
-                        required
-                      >
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} ({p.sku})
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        className="form-select"
-                        value={row.locationId}
-                        onChange={(e) => updateItemRow(idx, 'locationId', e.target.value)}
-                        required
-                      >
-                        {filteredLocations.map((l) => (
-                          <option key={l.id} value={l.id}>
-                            {l.name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        type="number"
-                        min="1"
-                        className="form-input"
-                        value={row.quantity}
-                        onChange={(e) => updateItemRow(idx, 'quantity', e.target.value)}
-                        required
-                      />
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        onClick={() => removeItemRow(idx)}
-                        style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {items.map((row, idx) => {
+                  const prod = products.find((p) => p.id === row.productId);
+                  const onHand = prod?.stocks?.find((s) => s.locationId === row.locationId)?.quantity || 0;
+                  const isSafe = onHand >= Number(row.quantity);
+                  return (
+                    <tr key={idx}>
+                      <td>
+                        <select
+                          className="form-select"
+                          value={row.productId}
+                          onChange={(e) => updateItemRow(idx, 'productId', e.target.value)}
+                          required
+                        >
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({p.sku})
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          className="form-select"
+                          value={row.locationId}
+                          onChange={(e) => updateItemRow(idx, 'locationId', e.target.value)}
+                          required
+                        >
+                          {filteredLocations.map((l) => (
+                            <option key={l.id} value={l.id}>
+                              {l.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-input"
+                          value={row.quantity}
+                          onChange={(e) => updateItemRow(idx, 'quantity', e.target.value)}
+                          required
+                        />
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            fontSize: '0.74rem',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            background: isSafe ? '#DCFCE7' : '#FEE2E2',
+                            color: isSafe ? '#166534' : '#991B1B',
+                          }}
+                        >
+                          {isSafe ? `Available (${onHand}) ✓` : `Short (${onHand} avail) ⚠️`}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => removeItemRow(idx)}
+                          style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </form>

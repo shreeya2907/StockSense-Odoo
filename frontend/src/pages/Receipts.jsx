@@ -364,7 +364,12 @@ export default function Receipts() {
             </div>
 
             <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h4 style={{ fontSize: '0.92rem', fontWeight: 600 }}>Product Lines</h4>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h4 style={{ fontSize: '0.92rem', fontWeight: 600 }}>Product Lines</h4>
+                <span style={{ fontSize: '0.74rem', background: '#EEF2FF', color: '#4F46E5', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                  Smart Receiving Active
+                </span>
+              </div>
               <button type="button" className="btn btn-secondary btn-sm" onClick={addItemRow}>
                 <Plus size={14} /> Add Line
               </button>
@@ -375,62 +380,92 @@ export default function Receipts() {
                 <tr>
                   <th>Product *</th>
                   <th>Location *</th>
-                  <th style={{ width: '120px' }}>Quantity *</th>
-                  <th style={{ width: '50px' }}></th>
+                  <th style={{ width: '110px' }}>Expected PO</th>
+                  <th style={{ width: '110px' }}>Received Qty *</th>
+                  <th style={{ width: '110px' }}>Discrepancy</th>
+                  <th style={{ width: '40px' }}></th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((row, idx) => (
-                  <tr key={idx}>
-                    <td>
-                      <select
-                        className="form-select"
-                        value={row.productId}
-                        onChange={(e) => updateItemRow(idx, 'productId', e.target.value)}
-                        required
-                      >
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} ({p.sku})
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        className="form-select"
-                        value={row.locationId}
-                        onChange={(e) => updateItemRow(idx, 'locationId', e.target.value)}
-                        required
-                      >
-                        {filteredLocations.map((l) => (
-                          <option key={l.id} value={l.id}>
-                            {l.name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        type="number"
-                        min="1"
-                        className="form-input"
-                        value={row.quantity}
-                        onChange={(e) => updateItemRow(idx, 'quantity', e.target.value)}
-                        required
-                      />
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        onClick={() => removeItemRow(idx)}
-                        style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {items.map((row, idx) => {
+                  const expected = Number(row.expectedQuantity || row.quantity);
+                  const received = Number(row.quantity);
+                  const diff = received - expected;
+                  return (
+                    <tr key={idx}>
+                      <td>
+                        <select
+                          className="form-select"
+                          value={row.productId}
+                          onChange={(e) => updateItemRow(idx, 'productId', e.target.value)}
+                          required
+                        >
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({p.sku})
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          className="form-select"
+                          value={row.locationId}
+                          onChange={(e) => updateItemRow(idx, 'locationId', e.target.value)}
+                          required
+                        >
+                          {filteredLocations.map((l) => (
+                            <option key={l.id} value={l.id}>
+                              {l.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-input"
+                          value={row.expectedQuantity || row.quantity}
+                          onChange={(e) => updateItemRow(idx, 'expectedQuantity', Number(e.target.value))}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-input"
+                          value={row.quantity}
+                          onChange={(e) => updateItemRow(idx, 'quantity', Number(e.target.value))}
+                          required
+                        />
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            fontSize: '0.76rem',
+                            fontWeight: 700,
+                            padding: '3px 6px',
+                            borderRadius: '4px',
+                            background: diff === 0 ? '#DCFCE7' : diff > 0 ? '#FEF3C7' : '#FEE2E2',
+                            color: diff === 0 ? '#166534' : diff > 0 ? '#92400E' : '#991B1B',
+                          }}
+                        >
+                          {diff === 0 ? 'Match ✓' : diff > 0 ? `+${diff} Extra` : `${diff} Short`}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => removeItemRow(idx)}
+                          style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </form>

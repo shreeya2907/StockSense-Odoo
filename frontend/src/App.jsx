@@ -18,6 +18,7 @@ import MoveHistory from './pages/MoveHistory';
 import Warehouses from './pages/Warehouses';
 import Locations from './pages/Locations';
 import Profile from './pages/Profile';
+import IntelligenceHub from './pages/IntelligenceHub';
 
 function AppLayout() {
   return (
@@ -46,6 +47,7 @@ export default function App() {
               <Route element={<AppLayout />}>
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/intelligence" element={<IntelligenceHub />} />
                 <Route path="/products" element={<Products />} />
                 <Route path="/receipts" element={<Receipts />} />
                 <Route path="/deliveries" element={<Deliveries />} />

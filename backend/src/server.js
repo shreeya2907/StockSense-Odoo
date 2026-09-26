@@ -14,6 +14,7 @@ const warehouseRoutes = require('./routes/warehouses');
 const locationRoutes = require('./routes/locations');
 const categoryRoutes = require('./routes/categories');
 const stockRoutes = require('./routes/stock');
+const intelligenceRoutes = require('./routes/intelligence');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -51,6 +52,7 @@ app.use('/api/warehouses', warehouseRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/stock', stockRoutes);
+app.use('/api/intelligence', intelligenceRoutes);
 
 // Global Error Handler
 app.use(errorHandler);

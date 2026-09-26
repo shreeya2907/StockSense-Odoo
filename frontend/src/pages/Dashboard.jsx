@@ -9,6 +9,9 @@ import {
   ArrowLeftRight,
   DollarSign,
   Plus,
+  Sparkles,
+  HelpCircle,
+  Zap,
 } from 'lucide-react';
 import api from '../api/axiosInstance';
 import Topbar from '../components/Topbar';
@@ -16,11 +19,13 @@ import KPICard from '../components/KPICard';
 import FilterBar from '../components/FilterBar';
 import DataTable from '../components/DataTable';
 import StatusBadge from '../components/StatusBadge';
+import ExplainNumberModal from '../components/ExplainNumberModal';
 import { useToast } from '../components/Toast';
 
 export default function Dashboard() {
   const [summary, setSummary] = useState(null);
   const [recentOps, setRecentOps] = useState([]);
+  const [smartActions, setSmartActions] = useState([]);
   const [loadingSummary, setLoadingSummary] = useState(true);
   const [loadingRecent, setLoadingRecent] = useState(true);
 
@@ -28,6 +33,10 @@ export default function Dashboard() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [warehouseFilter, setWarehouseFilter] = useState('ALL');
   const [warehouses, setWarehouses] = useState([]);
+
+  // Feature 12: Explain This Number modal
+  const [explainModalOpen, setExplainModalOpen] = useState(false);
+  const [explainMetric, setExplainMetric] = useState(null);
 
   const toast = useToast();
   const navigate = useNavigate();
@@ -53,6 +62,15 @@ export default function Dashboard() {
     }
   };
 
+  const fetchSmartActions = async () => {
+    try {
+      const res = await api.get('/intelligence/smart-actions');
+      setSmartActions(res.data);
+    } catch (err) {
+      // non-blocking
+    }
+  };
+
   const fetchRecent = async () => {
     try {
       setLoadingRecent(true);
@@ -73,11 +91,17 @@ export default function Dashboard() {
   useEffect(() => {
     fetchSummary();
     fetchWarehouses();
+    fetchSmartActions();
   }, []);
 
   useEffect(() => {
     fetchRecent();
   }, [typeFilter, statusFilter, warehouseFilter]);
+
+  const handleExplain = (metricKey) => {
+    setExplainMetric(metricKey);
+    setExplainModalOpen(true);
+  };
 
   const columns = [
     {
@@ -131,64 +155,136 @@ export default function Dashboard() {
       </Topbar>
 
       <div className="page-body">
-        {/* KPI Cards */}
+        {/* Smart Action Center Banner (Feature 8) */}
+        {smartActions.length > 0 && (
+          <div
+            style={{
+              background: 'linear-gradient(135deg, #1E1B4B 0%, #312E81 100%)',
+              color: '#FFFFFF',
+              borderRadius: '14px',
+              padding: '18px 24px',
+              marginBottom: '28px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div
+                style={{
+                  background: 'rgba(255,255,255,0.15)',
+                  padding: '10px',
+                  borderRadius: '10px',
+                  display: 'flex',
+                }}
+              >
+                <Zap size={22} color="#FBBF24" />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.98rem' }}>
+                  Smart Action Center: {smartActions[0]?.title}
+                </div>
+                <div style={{ fontSize: '0.84rem', color: '#C7D2FE', marginTop: '2px' }}>
+                  {smartActions[0]?.description}
+                </div>
+              </div>
+            </div>
+
+            <button
+              className="btn btn-sm"
+              style={{ background: '#FFFFFF', color: '#1E1B4B', fontWeight: 700 }}
+              onClick={() => navigate(smartActions[0]?.actionTarget || '/intelligence?tab=actions')}
+            >
+              Take Action ➔
+            </button>
+          </div>
+        )}
+
+        {/* KPI Cards (With Feature 12: Explain This Number on click) */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            💡 Tip: Click on any card below to see its exact mathematical breakdown & data items.
+          </span>
+        </div>
+
         <div className="kpi-grid">
-          <KPICard
-            label="Total Products"
-            value={loadingSummary ? '...' : summary?.totalProducts ?? 0}
-            icon={Package}
-            color="#4F46E5"
-            bgColor="#EEF2FF"
-          />
-          <KPICard
-            label="Low Stock Alerts"
-            value={loadingSummary ? '...' : summary?.lowStock ?? 0}
-            icon={AlertTriangle}
-            color="#D97706"
-            bgColor="#FEF3C7"
-          />
-          <KPICard
-            label="Out of Stock"
-            value={loadingSummary ? '...' : summary?.outOfStock ?? 0}
-            icon={XCircle}
-            color="#DC2626"
-            bgColor="#FEE2E2"
-          />
-          <KPICard
-            label="Total Inventory Value"
-            value={
-              loadingSummary
-                ? '...'
-                : `$${(summary?.totalStockValue || 0).toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}`
-            }
-            icon={DollarSign}
-            color="#059669"
-            bgColor="#ECFDF5"
-          />
-          <KPICard
-            label="Pending Receipts"
-            value={loadingSummary ? '...' : summary?.pendingReceipts ?? 0}
-            icon={ArrowDownToLine}
-            color="#2563EB"
-            bgColor="#EFF6FF"
-          />
-          <KPICard
-            label="Pending Deliveries"
-            value={loadingSummary ? '...' : summary?.pendingDeliveries ?? 0}
-            icon={ArrowUpFromLine}
-            color="#7C3AED"
-            bgColor="#F5F3FF"
-          />
-          <KPICard
-            label="Pending Transfers"
-            value={loadingSummary ? '...' : summary?.pendingTransfers ?? 0}
-            icon={ArrowLeftRight}
-            color="#0891B2"
-            bgColor="#ECFEFF"
-          />
+          <div onClick={() => handleExplain('totalProducts')} style={{ cursor: 'pointer' }}>
+            <KPICard
+              label="Total Products"
+              value={loadingSummary ? '...' : summary?.totalProducts ?? 0}
+              icon={Package}
+              color="#4F46E5"
+              bgColor="#EEF2FF"
+            />
+          </div>
+
+          <div onClick={() => handleExplain('lowStock')} style={{ cursor: 'pointer' }}>
+            <KPICard
+              label="Low Stock Alerts"
+              value={loadingSummary ? '...' : summary?.lowStock ?? 0}
+              icon={AlertTriangle}
+              color="#D97706"
+              bgColor="#FEF3C7"
+            />
+          </div>
+
+          <div onClick={() => handleExplain('outOfStock')} style={{ cursor: 'pointer' }}>
+            <KPICard
+              label="Out of Stock"
+              value={loadingSummary ? '...' : summary?.outOfStock ?? 0}
+              icon={XCircle}
+              color="#DC2626"
+              bgColor="#FEE2E2"
+            />
+          </div>
+
+          <div onClick={() => handleExplain('totalStockValue')} style={{ cursor: 'pointer' }}>
+            <KPICard
+              label="Total Inventory Value"
+              value={
+                loadingSummary
+                  ? '...'
+                  : `$${(summary?.totalStockValue || 0).toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}`
+              }
+              icon={DollarSign}
+              color="#059669"
+              bgColor="#ECFDF5"
+            />
+          </div>
+
+          <div onClick={() => navigate('/receipts')} style={{ cursor: 'pointer' }}>
+            <KPICard
+              label="Pending Receipts"
+              value={loadingSummary ? '...' : summary?.pendingReceipts ?? 0}
+              icon={ArrowDownToLine}
+              color="#2563EB"
+              bgColor="#EFF6FF"
+            />
+          </div>
+
+          <div onClick={() => navigate('/deliveries')} style={{ cursor: 'pointer' }}>
+            <KPICard
+              label="Pending Deliveries"
+              value={loadingSummary ? '...' : summary?.pendingDeliveries ?? 0}
+              icon={ArrowUpFromLine}
+              color="#7C3AED"
+              bgColor="#F5F3FF"
+            />
+          </div>
+
+          <div onClick={() => navigate('/transfers')} style={{ cursor: 'pointer' }}>
+            <KPICard
+              label="Pending Transfers"
+              value={loadingSummary ? '...' : summary?.pendingTransfers ?? 0}
+              icon={ArrowLeftRight}
+              color="#0891B2"
+              bgColor="#ECFEFF"
+            />
+          </div>
         </div>
 
         {/* Section Heading & Filter */}
@@ -247,6 +343,13 @@ export default function Dashboard() {
             if (row.type === 'DELIVERY') navigate('/deliveries');
             if (row.type === 'TRANSFER') navigate('/transfers');
           }}
+        />
+
+        {/* Feature 12: Explain This Number Modal */}
+        <ExplainNumberModal
+          isOpen={explainModalOpen}
+          onClose={() => setExplainModalOpen(false)}
+          metricKey={explainMetric}
         />
       </div>
     </div>
