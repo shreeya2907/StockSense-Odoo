@@ -1,0 +1,250 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  MANAGER
+  STAFF
+}
+
+enum DocStatus {
+  DRAFT
+  WAITING
+  READY
+  DONE
+  CANCELED
+}
+
+enum MovementType {
+  IN
+  OUT
+  TRANSFER
+  ADJUSTMENT
+}
+
+enum AdjustmentReason {
+  DAMAGED
+  LOST
+  FOUND
+  COUNTING_ERROR
+  OTHER
+}
+
+model User {
+  id               String       @id @default(uuid())
+  loginId          String       @unique
+  email            String       @unique
+  passwordHash     String
+  name             String
+  role             Role         @default(STAFF)
+  resetToken       String?
+  resetTokenExpiry DateTime?
+  createdAt        DateTime     @default(now())
+
+  receipts         Receipt[]
+  deliveries       Delivery[]
+  transfers        Transfer[]
+  adjustments      Adjustment[]
+  movements        StockMovement[]
+}
+
+model Category {
+  id       String    @id @default(uuid())
+  name     String    @unique
+  products Product[]
+}
+
+model Warehouse {
+  id               String          @id @default(uuid())
+  code             String          @unique
+  name             String
+  locations        Location[]
+  stocks           Stock[]
+  receipts         Receipt[]
+  deliveries       Delivery[]
+  transfersSource  Transfer[]      @relation("TransferSourceWarehouse")
+  transfersDest    Transfer[]      @relation("TransferDestWarehouse")
+  adjustments      Adjustment[]
+  movements        StockMovement[]
+}
+
+model Location {
+  id                  String          @id @default(uuid())
+  warehouseId         String
+  warehouse           Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  name                String
+  stocks              Stock[]
+  receiptItems        ReceiptItem[]
+  deliveryItems       DeliveryItem[]
+  transfersSource     Transfer[]      @relation("TransferSourceLocation")
+  transfersDest       Transfer[]      @relation("TransferDestLocation")
+  adjustments         Adjustment[]
+  movementsFrom       StockMovement[] @relation("MovementFromLocation")
+  movementsTo         StockMovement[] @relation("MovementToLocation")
+  defaultForProducts  Product[]       @relation("ProductDefaultLocation")
+
+  @@unique([warehouseId, name])
+}
+
+model Product {
+  id                 String          @id @default(uuid())
+  name               String
+  sku                String          @unique
+  categoryId         String
+  category           Category        @relation(fields: [categoryId], references: [id])
+  uom                String          @default("Units")
+  reorderLevel       Int             @default(10)
+  unitCost           Float           @default(0.0)
+  defaultWarehouseId String?
+  defaultLocationId  String?
+  defaultLocation    Location?       @relation("ProductDefaultLocation", fields: [defaultLocationId], references: [id])
+  createdAt          DateTime        @default(now())
+
+  stocks             Stock[]
+  receiptItems       ReceiptItem[]
+  deliveryItems      DeliveryItem[]
+  transferItems      TransferItem[]
+  adjustments        Adjustment[]
+  movements          StockMovement[]
+}
+
+model Stock {
+  id          String    @id @default(uuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  locationId  String
+  location    Location  @relation(fields: [locationId], references: [id])
+  quantity    Int       @default(0)
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([productId, locationId])
+}
+
+model Receipt {
+  id           String        @id @default(uuid())
+  reference    String        @unique
+  supplierName String
+  warehouseId  String
+  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id])
+  status       DocStatus     @default(DRAFT)
+  createdBy    String
+  user         User          @relation(fields: [createdBy], references: [id])
+  createdAt    DateTime      @default(now())
+  validatedAt  DateTime?
+  items        ReceiptItem[]
+}
+
+model ReceiptItem {
+  id         String   @id @default(uuid())
+  receiptId  String
+  receipt    Receipt  @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+  quantity   Int
+}
+
+model Delivery {
+  id           String         @id @default(uuid())
+  reference    String         @unique
+  customerName String
+  warehouseId  String
+  warehouse    Warehouse      @relation(fields: [warehouseId], references: [id])
+  status       DocStatus      @default(DRAFT)
+  createdBy    String
+  user         User           @relation(fields: [createdBy], references: [id])
+  createdAt    DateTime       @default(now())
+  validatedAt  DateTime?
+  items        DeliveryItem[]
+}
+
+model DeliveryItem {
+  id         String   @id @default(uuid())
+  deliveryId String
+  delivery   Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+  quantity   Int
+}
+
+model Transfer {
+  id                String         @id @default(uuid())
+  reference         String         @unique
+  sourceWarehouseId String
+  sourceWarehouse   Warehouse      @relation("TransferSourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  sourceLocationId  String
+  sourceLocation    Location       @relation("TransferSourceLocation", fields: [sourceLocationId], references: [id])
+  destWarehouseId   String
+  destWarehouse     Warehouse      @relation("TransferDestWarehouse", fields: [destWarehouseId], references: [id])
+  destLocationId    String
+  destLocation      Location       @relation("TransferDestLocation", fields: [destLocationId], references: [id])
+  status            DocStatus      @default(DRAFT)
+  createdBy         String
+  user              User           @relation(fields: [createdBy], references: [id])
+  createdAt         DateTime       @default(now())
+  validatedAt       DateTime?
+  items             TransferItem[]
+}
+
+model TransferItem {
+  id         String   @id @default(uuid())
+  transferId String
+  transfer   Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  quantity   Int
+}
+
+model Adjustment {
+  id             String           @id @default(uuid())
+  reference      String           @unique
+  productId      String
+  product        Product          @relation(fields: [productId], references: [id])
+  warehouseId    String
+  warehouse      Warehouse        @relation(fields: [warehouseId], references: [id])
+  locationId     String
+  location       Location         @relation(fields: [locationId], references: [id])
+  systemQuantity Int
+  countedQuantity Int
+  difference     Int
+  reason         AdjustmentReason @default(COUNTING_ERROR)
+  status         DocStatus        @default(DRAFT)
+  createdBy      String
+  user           User             @relation(fields: [createdBy], references: [id])
+  createdAt      DateTime         @default(now())
+  validatedAt    DateTime?
+}
+
+model StockMovement {
+  id             String       @id @default(uuid())
+  date           DateTime     @default(now())
+  reference      String
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id])
+  movementType   MovementType
+  quantity       Int
+  fromLocationId String?
+  fromLocation   Location?    @relation("MovementFromLocation", fields: [fromLocationId], references: [id])
+  toLocationId   String?
+  toLocation     Location?    @relation("MovementToLocation", fields: [toLocationId], references: [id])
+  warehouseId    String
+  warehouse      Warehouse    @relation(fields: [warehouseId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  status         String       @default("COMPLETED")
+}
+
+model Counter {
+  key String @id
+  seq Int    @default(0)
+}
