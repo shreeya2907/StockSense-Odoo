@@ -1,38 +1,10 @@
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
 generator client {
   provider = "prisma-client-js"
-}
-
-enum Role {
-  MANAGER
-  STAFF
-}
-
-enum DocStatus {
-  DRAFT
-  WAITING
-  READY
-  DONE
-  CANCELED
-}
-
-enum MovementType {
-  IN
-  OUT
-  TRANSFER
-  ADJUSTMENT
-}
-
-enum AdjustmentReason {
-  DAMAGED
-  LOST
-  FOUND
-  COUNTING_ERROR
-  OTHER
 }
 
 model User {
@@ -41,7 +13,7 @@ model User {
   email            String       @unique
   passwordHash     String
   name             String
-  role             Role         @default(STAFF)
+  role             String       @default("STAFF")
   resetToken       String?
   resetTokenExpiry DateTime?
   createdAt        DateTime     @default(now())
@@ -133,7 +105,7 @@ model Receipt {
   supplierName String
   warehouseId  String
   warehouse    Warehouse     @relation(fields: [warehouseId], references: [id])
-  status       DocStatus     @default(DRAFT)
+  status       String        @default("DRAFT")
   createdBy    String
   user         User          @relation(fields: [createdBy], references: [id])
   createdAt    DateTime      @default(now())
@@ -158,7 +130,7 @@ model Delivery {
   customerName String
   warehouseId  String
   warehouse    Warehouse      @relation(fields: [warehouseId], references: [id])
-  status       DocStatus      @default(DRAFT)
+  status       String         @default("DRAFT")
   createdBy    String
   user         User           @relation(fields: [createdBy], references: [id])
   createdAt    DateTime       @default(now())
@@ -188,7 +160,7 @@ model Transfer {
   destWarehouse     Warehouse      @relation("TransferDestWarehouse", fields: [destWarehouseId], references: [id])
   destLocationId    String
   destLocation      Location       @relation("TransferDestLocation", fields: [destLocationId], references: [id])
-  status            DocStatus      @default(DRAFT)
+  status            String         @default("DRAFT")
   createdBy         String
   user              User           @relation(fields: [createdBy], references: [id])
   createdAt         DateTime       @default(now())
@@ -206,42 +178,42 @@ model TransferItem {
 }
 
 model Adjustment {
-  id             String           @id @default(uuid())
-  reference      String           @unique
+  id             String    @id @default(uuid())
+  reference      String    @unique
   productId      String
-  product        Product          @relation(fields: [productId], references: [id])
+  product        Product   @relation(fields: [productId], references: [id])
   warehouseId    String
-  warehouse      Warehouse        @relation(fields: [warehouseId], references: [id])
+  warehouse      Warehouse @relation(fields: [warehouseId], references: [id])
   locationId     String
-  location       Location         @relation(fields: [locationId], references: [id])
+  location       Location  @relation(fields: [locationId], references: [id])
   systemQuantity Int
   countedQuantity Int
   difference     Int
-  reason         AdjustmentReason @default(COUNTING_ERROR)
-  status         DocStatus        @default(DRAFT)
+  reason         String    @default("COUNTING_ERROR")
+  status         String    @default("DRAFT")
   createdBy      String
-  user           User             @relation(fields: [createdBy], references: [id])
-  createdAt      DateTime         @default(now())
+  user           User      @relation(fields: [createdBy], references: [id])
+  createdAt      DateTime  @default(now())
   validatedAt    DateTime?
 }
 
 model StockMovement {
-  id             String       @id @default(uuid())
-  date           DateTime     @default(now())
+  id             String    @id @default(uuid())
+  date           DateTime  @default(now())
   reference      String
   productId      String
-  product        Product      @relation(fields: [productId], references: [id])
-  movementType   MovementType
+  product        Product   @relation(fields: [productId], references: [id])
+  movementType   String
   quantity       Int
   fromLocationId String?
-  fromLocation   Location?    @relation("MovementFromLocation", fields: [fromLocationId], references: [id])
+  fromLocation   Location? @relation("MovementFromLocation", fields: [fromLocationId], references: [id])
   toLocationId   String?
-  toLocation     Location?    @relation("MovementToLocation", fields: [toLocationId], references: [id])
+  toLocation     Location? @relation("MovementToLocation", fields: [toLocationId], references: [id])
   warehouseId    String
-  warehouse      Warehouse    @relation(fields: [warehouseId], references: [id])
+  warehouse      Warehouse @relation(fields: [warehouseId], references: [id])
   userId         String
-  user           User         @relation(fields: [userId], references: [id])
-  status         String       @default("COMPLETED")
+  user           User      @relation(fields: [userId], references: [id])
+  status         String    @default("COMPLETED")
 }
 
 model Counter {
