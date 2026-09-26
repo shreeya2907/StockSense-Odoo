@@ -15,6 +15,9 @@ import {
   ArrowRight,
   ShieldCheck,
   RefreshCw,
+  Users,
+  Clock,
+  CheckCircle2,
 } from 'lucide-react';
 import api from '../api/axiosInstance';
 import Topbar from '../components/Topbar';
@@ -780,6 +783,10 @@ function DetectiveTab() {
   const [investigations, setInvestigations] = useState([]);
   const [anomalies, setAnomalies] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [deepDiveData, setDeepDiveData] = useState({});
+  const [analyzingId, setAnalyzingId] = useState(null);
+
+  const toast = useToast();
 
   useEffect(() => {
     Promise.all([api.get('/intelligence/inventory-detective'), api.get('/intelligence/anomalies')])
@@ -789,6 +796,19 @@ function DetectiveTab() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  const handleDeepDive = async (adjId) => {
+    setAnalyzingId(adjId);
+    try {
+      const res = await api.post('/intelligence/inventory-detective/deep-dive', { adjustmentId: adjId });
+      setDeepDiveData((prev) => ({ ...prev, [adjId]: res.data.aiAnalysis }));
+      toast.success('Gemini AI Forensic analysis completed');
+    } catch (err) {
+      toast.error('Failed to run Gemini forensic analysis');
+    } finally {
+      setAnalyzingId(null);
+    }
+  };
 
   return (
     <div>
@@ -878,10 +898,44 @@ function DetectiveTab() {
               </div>
             </div>
 
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>Location: {inv.warehouse} - {inv.location}</span>
               <span>Auditor: {inv.investigator} | Date: {new Date(inv.date).toLocaleString()}</span>
             </div>
+
+            {/* Gemini Forensic Deep Dive Trigger */}
+            {inv.difference !== 0 && (
+              <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
+                {deepDiveData[inv.id] ? (
+                  <div
+                    style={{
+                      background: '#F0FDF4',
+                      border: '1px solid #BBF7D0',
+                      borderRadius: '8px',
+                      padding: '12px 14px',
+                      fontSize: '0.84rem',
+                      color: '#166534',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                      <Sparkles size={14} color="#16a34a" /> Google Gemini AI Forensic RCA & Strategic Fix:
+                    </div>
+                    <p style={{ whiteSpace: 'pre-line', margin: 0 }}>{deepDiveData[inv.id]}</p>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => handleDeepDive(inv.id)}
+                    disabled={analyzingId === inv.id}
+                  >
+                    <Sparkles size={13} color="var(--primary)" />
+                    {analyzingId === inv.id ? 'Consulting Gemini AI Brain...' : 'Run Forensic RCA (Gemini AI Brain)'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -890,32 +944,174 @@ function DetectiveTab() {
 }
 
 // =========================================================================
-// TAB 5: SMART ACTION CENTER & RECOMMENDATIONS
+// TAB 5: SMART ACTION CENTER & RECOMMENDATIONS (Powered by Gemini Brain)
 // =========================================================================
 function ActionCenterTab() {
   const [actions, setActions] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
+  const [aiTasks, setAiTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshingTasks, setRefreshingTasks] = useState(false);
+  const [completedTasks, setCompletedTasks] = useState({});
 
   const toast = useToast();
 
+  const fetchTasks = async () => {
+    setRefreshingTasks(true);
+    try {
+      const res = await api.get('/intelligence/ai-tasks');
+      setAiTasks(res.data.tasks || []);
+      toast.success('Gemini AI Brain reassigned warehouse tasks based on live state');
+    } catch (err) {
+      toast.error('Failed to load AI task assignments');
+    } finally {
+      setRefreshingTasks(false);
+    }
+  };
+
   useEffect(() => {
-    Promise.all([api.get('/intelligence/smart-actions'), api.get('/intelligence/recommendations')])
-      .then(([actRes, recRes]) => {
+    Promise.all([
+      api.get('/intelligence/smart-actions'),
+      api.get('/intelligence/recommendations'),
+      api.get('/intelligence/ai-tasks'),
+    ])
+      .then(([actRes, recRes, taskRes]) => {
         setActions(actRes.data);
         setRecommendations(recRes.data);
+        setAiTasks(taskRes.data.tasks || []);
       })
       .finally(() => setLoading(false));
   }, []);
 
+  const toggleTaskStatus = (taskId) => {
+    setCompletedTasks((prev) => {
+      const nextState = !prev[taskId];
+      toast.success(nextState ? `Task marked as COMPLETED` : `Task marked as ACTIVE`);
+      return { ...prev, [taskId]: nextState };
+    });
+  };
+
   return (
     <div>
+      {/* SECTION 1: GEMINI AI DYNAMIC TASK DISPATCHER */}
+      <div
+        style={{
+          background: 'linear-gradient(135deg, #EEF2FF 0%, #F5F3FF 100%)',
+          border: '1px solid #C7D2FE',
+          borderRadius: '14px',
+          padding: '22px',
+          marginBottom: '28px',
+          boxShadow: '0 2px 4px rgba(79, 70, 229, 0.05)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Sparkles size={20} color="#4F46E5" />
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#1E1B4B', margin: 0 }}>
+                Google Gemini AI Brain — Dynamic Warehouse Task Dispatcher
+              </h3>
+            </div>
+            <p style={{ fontSize: '0.82rem', color: '#4338CA', marginTop: '4px', margin: 0 }}>
+              AI autonomously inspects on-hand counts, buffer breaches, and pending receipts to assign concrete operational tasks to staff roles.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            onClick={fetchTasks}
+            disabled={refreshingTasks}
+          >
+            <RefreshCw size={14} className={refreshingTasks ? 'animate-spin' : ''} />
+            {refreshingTasks ? 'Assigning via Gemini...' : 'Re-dispatch Tasks with Gemini'}
+          </button>
+        </div>
+
+        {/* Task Cards Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+          {aiTasks.map((t) => {
+            const isDone = !!completedTasks[t.id];
+            const isCritical = t.priority === 'CRITICAL';
+            const isHigh = t.priority === 'HIGH';
+
+            return (
+              <div
+                key={t.id}
+                style={{
+                  background: isDone ? '#F8FAFC' : '#FFFFFF',
+                  border: isDone ? '1px solid #E2E8F0' : '1px solid #E0E7FF',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                  opacity: isDone ? 0.65 : 1,
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span
+                      style={{
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '9999px',
+                        background: isCritical ? '#FEE2E2' : isHigh ? '#FEF3C7' : '#DBEAFE',
+                        color: isCritical ? '#991B1B' : isHigh ? '#92400E' : '#1E40AF',
+                      }}
+                    >
+                      {t.priority}
+                    </span>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Clock size={12} /> {t.deadline || 'Today'}
+                    </span>
+                  </div>
+
+                  <h4 style={{ fontWeight: 700, fontSize: '0.94rem', marginBottom: '6px', color: isDone ? 'var(--text-muted)' : '#1E293B', textDecoration: isDone ? 'line-through' : 'none' }}>
+                    {t.title}
+                  </h4>
+
+                  <div style={{ fontSize: '0.78rem', color: '#4F46E5', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                    <Users size={13} /> Assigned: {t.role}
+                  </div>
+
+                  <p style={{ fontSize: '0.81rem', color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: '10px' }}>
+                    {t.instructions}
+                  </p>
+
+                  {t.target && (
+                    <div style={{ fontSize: '0.75rem', background: '#F1F5F9', padding: '4px 8px', borderRadius: '6px', color: '#334155', marginBottom: '12px' }}>
+                      <strong>Target:</strong> {t.target} {t.estimatedTime && `• Est: ${t.estimatedTime}`}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  className={`btn btn-sm ${isDone ? 'btn-secondary' : 'btn-primary'}`}
+                  style={{ width: '100%', fontSize: '0.78rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  onClick={() => toggleTaskStatus(t.id)}
+                >
+                  <CheckCircle2 size={14} />
+                  {isDone ? 'Completed (Click to Reopen)' : 'Mark Task as Completed'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* SECTION 2: SYSTEM IMMEDIATE PRIORITIES & PROACTIVE RECOMMENDATIONS */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
         {/* Smart Action Center */}
         <div>
           <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Zap size={18} color="#D97706" />
-            Smart Action Center (Immediate Priorities)
+            Smart Action Center (System Triggers)
           </h3>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

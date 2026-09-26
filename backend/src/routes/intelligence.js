@@ -1,12 +1,13 @@
 const express = require('express');
 const prisma = require('../db');
 const { verifyJWT } = require('../middleware/auth');
+const geminiBrain = require('../utils/geminiBrain');
 
 const router = express.Router();
 router.use(verifyJWT);
 
 // =========================================================================
-// 1. AI WAREHOUSE COPILOT & 11. NATURAL LANGUAGE REPORTS
+// 1. AI WAREHOUSE COPILOT & 11. NATURAL LANGUAGE REPORTS (Powered by Gemini)
 // =========================================================================
 router.post('/copilot', async (req, res, next) => {
   try {
@@ -36,100 +37,115 @@ router.post('/copilot', async (req, res, next) => {
     let dataTable = null;
     let suggestions = [];
 
-    if (q.includes('low stock') || q.includes('reorder') || q.includes('khatam') || q.includes('shortage')) {
-      const lowStockItems = products
-        .map((p) => {
-          const onHand = p.stocks.reduce((acc, s) => acc + s.quantity, 0);
-          return { ...p, onHand };
-        })
-        .filter((p) => p.onHand <= p.reorderLevel && p.onHand > 0);
+    // Compute live inventory metrics
+    let totalVal = 0;
+    const valuationList = products.map((p) => {
+      const onHand = p.stocks.reduce((acc, s) => acc + s.quantity, 0);
+      const itemVal = onHand * p.unitCost;
+      totalVal += itemVal;
+      return { name: p.name, sku: p.sku, onHand, unitCost: p.unitCost, itemVal };
+    });
 
-      answer = `Identified **${lowStockItems.length} product(s)** running below or at their reorder safety thresholds. Immediate replenishment is advised.`;
+    const lowStockItems = products
+      .map((p) => {
+        const onHand = p.stocks.reduce((acc, s) => acc + s.quantity, 0);
+        return { ...p, onHand };
+      })
+      .filter((p) => p.onHand <= p.reorderLevel);
+
+    const outOfStockItems = lowStockItems.filter((p) => p.onHand === 0);
+
+    // Provide relevant dataTable if the query is asking for lists
+    if (q.includes('low stock') || q.includes('reorder') || q.includes('khatam') || q.includes('shortage')) {
       dataTable = {
         columns: ['Product Name', 'SKU', 'On Hand', 'Reorder Level', 'Unit Cost'],
         rows: lowStockItems.map((p) => [p.name, p.sku, p.onHand, p.reorderLevel, `$${p.unitCost}`]),
       };
-      suggestions = ['Generate Purchase Order', 'Predict Stockout Timelines', 'Check Suppliers'];
+      suggestions = ['Check Supplier Reliability', 'Run What-If Restock Simulator', 'Assign Restocking Tasks'];
     } else if (q.includes('out of stock') || q.includes('zero') || q.includes('empty')) {
-      const outOfStockItems = products
-        .map((p) => {
-          const onHand = p.stocks.reduce((acc, s) => acc + s.quantity, 0);
-          return { ...p, onHand };
-        })
-        .filter((p) => p.onHand === 0);
-
-      answer = `Currently **${outOfStockItems.length} product(s)** have zero on-hand stock across all warehouse facilities.`;
       dataTable = {
         columns: ['Product Name', 'SKU', 'Category', 'Reorder Level'],
         rows: outOfStockItems.map((p) => [p.name, p.sku, p.category?.name || 'N/A', p.reorderLevel]),
       };
       suggestions = ['Create Inbound Receipt', 'View Supplier Contacts', 'Simulate Restock'];
     } else if (q.includes('value') || q.includes('cost') || q.includes('worth') || q.includes('total')) {
-      let totalVal = 0;
-      const breakdown = products.map((p) => {
-        const onHand = p.stocks.reduce((acc, s) => acc + s.quantity, 0);
-        const itemVal = onHand * p.unitCost;
-        totalVal += itemVal;
-        return { name: p.name, sku: p.sku, onHand, unitCost: p.unitCost, itemVal };
-      });
-
-      answer = `Total inventory valuation currently stands at **$${totalVal.toLocaleString(undefined, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}** across ${products.length} catalog items.`;
       dataTable = {
         columns: ['Product', 'SKU', 'On Hand', 'Unit Cost', 'Asset Value'],
-        rows: breakdown
+        rows: valuationList
           .sort((a, b) => b.itemVal - a.itemVal)
+          .slice(0, 8)
           .map((b) => [b.name, b.sku, b.onHand, `$${b.unitCost.toFixed(2)}`, `$${b.itemVal.toFixed(2)}`]),
       };
       suggestions = ['Show Highest Value Items', 'Export Valuation Summary', 'Analyze Storage Cost'];
     } else if (q.includes('where') || q.includes('location') || q.includes('rack') || q.includes('steel') || q.includes('chair')) {
-      // Find matching product
       const matched = products.find(
         (p) => q.includes(p.name.toLowerCase()) || q.includes(p.sku.toLowerCase())
       ) || products[0];
 
       if (matched) {
-        const locationsList = matched.stocks.map((s) => `${s.warehouse.code} - ${s.location.name} (${s.quantity} units)`);
-        const totalOnHand = matched.stocks.reduce((acc, s) => acc + s.quantity, 0);
-        answer = `**${matched.name}** (${matched.sku}) has a total on-hand quantity of **${totalOnHand} ${matched.uom}**. Storage breakdown: ${locationsList.join(', ')}.`;
         dataTable = {
           columns: ['Warehouse', 'Location/Rack', 'Quantity Available', 'Last Updated'],
           rows: matched.stocks.map((s) => [s.warehouse.name, s.location.name, s.quantity, new Date(s.updatedAt).toLocaleDateString()]),
         };
         suggestions = [`Transfer ${matched.name}`, `Adjust Count for ${matched.name}`, `View Movement Journey`];
-      } else {
-        answer = `Could not pinpoint the exact product. Please specify the product name (e.g. Steel Rods, Laptop, Safety Helmet).`;
       }
     } else if (q.includes('receipt') || q.includes('inbound') || q.includes('supplier')) {
-      answer = `Showing the **${receipts.length} most recent inbound receipts**. Total suppliers active: ${new Set(receipts.map((r) => r.supplierName)).size}.`;
       dataTable = {
         columns: ['Reference', 'Supplier', 'Warehouse', 'Status', 'Date'],
-        rows: receipts.map((r) => [r.reference, r.supplierName, r.warehouse.name, r.status, new Date(r.createdAt).toLocaleDateString()]),
+        rows: receipts.slice(0, 5).map((r) => [r.reference, r.supplierName, r.warehouse.name, r.status, new Date(r.createdAt).toLocaleDateString()]),
       };
       suggestions = ['Create New Receipt', 'Show Pending Receipts Only', 'Supplier Reliability'];
-    } else {
-      // Generic overview
-      let totalUnits = 0;
-      let totalVal = 0;
-      products.forEach((p) => {
-        const onHand = p.stocks.reduce((acc, s) => acc + s.quantity, 0);
-        totalUnits += onHand;
-        totalVal += onHand * p.unitCost;
-      });
+    }
 
-      answer = `Here is the current system snapshot: **${products.length} products**, **${totalUnits} total units in stock**, across **${receipts.length} receipts** and **${deliveries.length} deliveries**. Total valuation is **$${totalVal.toLocaleString()}**. How can I help you optimize operations?`;
-      dataTable = {
-        columns: ['Metric', 'Current Value', 'Status'],
-        rows: [
-          ['Active Products', products.length, 'Healthy'],
-          ['Total Units On Hand', totalUnits, 'Operational'],
-          ['Inventory Valuation', `$${totalVal.toFixed(2)}`, 'Tracked'],
-          ['Recent Receipts', receipts.length, 'Logged'],
-        ],
-      };
-      suggestions = ['Check Low Stock Products', 'Predict Stockouts', 'Show Warehouse Heatmap'];
+    // Call Google Gemini AI Brain with live inventory snapshot
+    if (geminiBrain.isGeminiConfigured()) {
+      try {
+        const liveSnapshot = {
+          totalCatalogProducts: products.length,
+          totalInventoryValuation: `$${totalVal.toFixed(2)}`,
+          lowStockSKUs: lowStockItems.map((p) => ({
+            name: p.name,
+            sku: p.sku,
+            onHand: p.onHand,
+            reorderLevel: p.reorderLevel,
+            locations: p.stocks.map((s) => `${s.warehouse.code}-${s.location.name} (${s.quantity})`).join(', '),
+          })),
+          recentInboundReceipts: receipts.slice(0, 5).map((r) => ({
+            ref: r.reference,
+            supplier: r.supplierName,
+            warehouse: r.warehouse.name,
+            status: r.status,
+          })),
+          recentDeliveries: deliveries.slice(0, 5).map((d) => ({
+            ref: d.reference,
+            customer: d.customerName,
+            status: d.status,
+          })),
+          sampleCatalog: products.slice(0, 10).map((p) => ({
+            name: p.name,
+            sku: p.sku,
+            onHand: p.stocks.reduce((acc, s) => acc + s.quantity, 0),
+            unitCost: `$${p.unitCost}`,
+          })),
+        };
+
+        answer = await geminiBrain.askGeminiCopilot(query, liveSnapshot);
+      } catch (geminiErr) {
+        console.warn('Gemini Copilot API error, falling back to rule engine:', geminiErr.message);
+      }
+    }
+
+    // Rule-based fallback if Gemini is not configured or failed
+    if (!answer) {
+      if (dataTable) {
+        answer = `Analyzed live database records for "${query}". Found pertinent items with current inventory status.`;
+      } else {
+        answer = `StockSense holds **${products.length} products** with a total valuation of **$${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2 })}**. Ask me about low stock alerts, product locations, or recent shipments.`;
+      }
+    }
+
+    if (suggestions.length === 0) {
+      suggestions = ['Check Low Stock Products', 'Predict Stockout Timelines', 'Assign AI Operational Tasks', 'Show Warehouse Heatmap'];
     }
 
     res.json({
@@ -137,12 +153,14 @@ router.post('/copilot', async (req, res, next) => {
       answer,
       dataTable,
       suggestions,
+      poweredBy: 'Google Gemini AI',
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
     next(err);
   }
 });
+
 
 // =========================================================================
 // 2. PREDICTIVE STOCKOUT
@@ -624,22 +642,44 @@ router.get('/daily-brief', async (req, res, next) => {
       100 - lowStockCount * 8 - outOfStockCount * 15
     );
 
+    let executiveSummary = `Warehouse operations are running with ${products.length} managed catalog SKUs and a total inventory value of $${totalStockVal.toLocaleString()}. Operational attention is required on ${lowStockCount + outOfStockCount} inventory line(s).`;
+    let priorities = [
+      'Place replenishment purchase order for products at or below safety threshold.',
+      'Validate incoming supplier consignments waiting at Main Warehouse dock.',
+      'Review variance reports in the Inventory Detective dashboard.',
+    ];
+
+    if (geminiBrain.isGeminiConfigured()) {
+      try {
+        const aiBrief = await geminiBrain.generateDailyBriefAI({
+          totalProducts: products.length,
+          totalValuation: `$${totalStockVal.toFixed(2)}`,
+          healthScore,
+          lowStockCount,
+          outOfStockCount,
+          recentOperationsCount: movements.length,
+        });
+        if (aiBrief) {
+          executiveSummary = aiBrief;
+        }
+      } catch (geminiErr) {
+        console.warn('Gemini daily brief fallback:', geminiErr.message);
+      }
+    }
+
     const brief = {
       generatedAt: new Date().toISOString(),
       healthScore,
       healthStatus: healthScore > 85 ? 'EXCELLENT' : healthScore > 70 ? 'GOOD' : 'ATTENTION_REQUIRED',
-      executiveSummary: `Warehouse operations are running with ${products.length} managed catalog SKUs and a total inventory value of $${totalStockVal.toLocaleString()}. Operational attention is required on ${lowStockCount + outOfStockCount} inventory line(s).`,
+      executiveSummary,
       keyMetrics: [
         { label: 'Inventory Health Score', value: `${healthScore}/100` },
         { label: 'Low Stock Risk SKUs', value: lowStockCount },
         { label: 'Out of Stock SKUs', value: outOfStockCount },
         { label: '24h Total Operations', value: movements.length },
       ],
-      priorities: [
-        'Place replenishment purchase order for products at or below safety threshold.',
-        'Validate incoming supplier consignments waiting at Main Warehouse dock.',
-        'Review variance reports in the Inventory Detective dashboard.',
-      ],
+      priorities,
+      poweredBy: 'Google Gemini AI',
     };
 
     res.json(brief);
@@ -852,6 +892,121 @@ router.get('/recommendations', async (req, res, next) => {
     });
 
     res.json(recommendations);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =========================================================================
+// 21. AI DYNAMIC TASK ASSIGNMENT DISPATCHER (Powered by Gemini Brain)
+// =========================================================================
+router.get('/ai-tasks', async (req, res, next) => {
+  try {
+    const products = await prisma.product.findMany({
+      include: { stocks: { include: { warehouse: true, location: true } } },
+    });
+    const receipts = await prisma.receipt.findMany({
+      where: { status: 'DRAFT' },
+      take: 5,
+    });
+    const deliveries = await prisma.delivery.findMany({
+      where: { status: 'DRAFT' },
+      take: 5,
+    });
+    const adjustments = await prisma.adjustment.findMany({
+      take: 5,
+      orderBy: { createdAt: 'desc' },
+      include: { product: true },
+    });
+
+    const lowStockItems = products
+      .map((p) => ({
+        name: p.name,
+        sku: p.sku,
+        onHand: p.stocks.reduce((acc, s) => acc + s.quantity, 0),
+        reorderLevel: p.reorderLevel,
+      }))
+      .filter((p) => p.onHand <= p.reorderLevel);
+
+    const liveContext = {
+      lowStockCount: lowStockItems.length,
+      lowStockItems: lowStockItems.map(
+        (p) => `${p.name} (${p.sku}) - On hand: ${p.onHand}, Threshold: ${p.reorderLevel}`
+      ),
+      pendingDraftReceipts: receipts.length,
+      pendingDraftDeliveries: deliveries.length,
+      recentAdjustments: adjustments.map(
+        (a) => `${a.product?.name}: discrepancy ${a.difference} units (${a.reason})`
+      ),
+    };
+
+    const tasks = await geminiBrain.assignWarehouseTasksAI(liveContext);
+    res.json({
+      success: true,
+      assignedBy: 'Google Gemini AI Warehouse Brain',
+      timestamp: new Date().toISOString(),
+      tasks,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =========================================================================
+// 22. AI FORENSIC DETECTIVE DEEP-DIVE (Powered by Gemini Brain)
+// =========================================================================
+router.post('/inventory-detective/deep-dive', async (req, res, next) => {
+  try {
+    const { adjustmentId } = req.body;
+    let adj = null;
+    if (adjustmentId) {
+      adj = await prisma.adjustment.findUnique({
+        where: { id: adjustmentId },
+        include: { product: true, warehouse: true, location: true, user: true },
+      });
+    } else {
+      adj = await prisma.adjustment.findFirst({
+        where: { difference: { not: 0 } },
+        orderBy: { createdAt: 'desc' },
+        include: { product: true, warehouse: true, location: true, user: true },
+      });
+    }
+
+    if (!adj) {
+      return res.json({
+        reference: 'N/A',
+        aiAnalysis: 'All recent inventory cycle counts show 100% concordance with physical stock. No discrepancies detected.',
+      });
+    }
+
+    let aiAnalysis = 'Reconciliation matched system tolerances.';
+    if (geminiBrain.isGeminiConfigured()) {
+      try {
+        aiAnalysis = await geminiBrain.analyzeDiscrepancyAI({
+          reference: adj.reference,
+          productName: adj.product?.name,
+          sku: adj.product?.sku,
+          warehouse: adj.warehouse?.name,
+          location: adj.location?.name,
+          systemQuantity: adj.systemQuantity,
+          countedQuantity: adj.countedQuantity,
+          difference: adj.difference,
+          reason: adj.reason,
+        });
+      } catch (err) {
+        console.warn('Gemini discrepancy analysis fallback:', err.message);
+      }
+    }
+
+    res.json({
+      adjustmentId: adj.id,
+      reference: adj.reference,
+      productName: adj.product?.name,
+      sku: adj.product?.sku,
+      difference: adj.difference,
+      aiAnalysis,
+      poweredBy: 'Google Gemini AI',
+    });
   } catch (err) {
     next(err);
   }
