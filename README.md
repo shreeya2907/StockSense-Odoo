@@ -86,7 +86,7 @@ stocksense/
 
 ---
 
-## 💻 Running Locally
+## 💻 Running Locally https://stocksense-odoo.onrender.com
 
 ### 1. Backend Setup
 ```bash
