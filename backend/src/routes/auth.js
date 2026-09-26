@@ -7,8 +7,9 @@ const { verifyJWT, JWT_SECRET } = require('../middleware/auth');
 
 const router = express.Router();
 
-// In-memory verification registry for pending signups (expires in 10 minutes)
+// In-memory verification registry for pending signups & logins (expires in 10 minutes)
 const pendingSignups = new Map();
+const pendingLoginOtps = new Map();
 
 // Helper to validate password complexity: 1 uppercase, 1 lowercase, 1 special char, min 8 chars
 function validatePassword(password) {
@@ -48,32 +49,27 @@ router.post('/send-signup-otp', async (req, res, next) => {
   try {
     const { loginId, email, name } = req.body;
 
-    // Validate loginId
-    if (!loginId || loginId.length < 6 || loginId.length > 12) {
-      return res.status(400).json({ message: 'Login ID must be between 6 and 12 characters.' });
-    }
-
     // Validate email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email || !emailRegex.test(email)) {
       return res.status(400).json({ message: 'Please enter a valid email address.' });
     }
 
-    // Validate name
-    if (!name || name.trim().length === 0) {
-      return res.status(400).json({ message: 'Full name is required.' });
-    }
-
-    // Check duplicate loginId
-    const existingLogin = await prisma.user.findUnique({ where: { loginId: loginId.trim() } });
-    if (existingLogin) {
-      return res.status(400).json({ message: 'This Login ID is already taken. Please pick another.' });
-    }
-
     // Check duplicate email
     const existingEmail = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
     if (existingEmail) {
       return res.status(400).json({ message: 'This email is already registered. Please go to Sign In.' });
+    }
+
+    // Validate loginId if provided
+    if (loginId) {
+      if (loginId.length < 6 || loginId.length > 12) {
+        return res.status(400).json({ message: 'Login ID must be between 6 and 12 characters.' });
+      }
+      const existingLogin = await prisma.user.findUnique({ where: { loginId: loginId.trim() } });
+      if (existingLogin) {
+        return res.status(400).json({ message: 'This Login ID is already taken. Please pick another.' });
+      }
     }
 
     // Generate secure 6-digit numeric OTP
@@ -84,8 +80,8 @@ router.post('/send-signup-otp', async (req, res, next) => {
     pendingSignups.set(emailKey, {
       otp,
       expiresAt,
-      loginId: loginId.trim(),
-      name: name.trim(),
+      loginId: (loginId || '').trim(),
+      name: (name || '').trim(),
     });
 
     console.log(`[AUTH] Mandatory Sign-Up OTP for ${email}: ${otp}`);
@@ -261,6 +257,137 @@ router.post('/login', async (req, res, next) => {
 
     res.json({
       message: 'Login successful',
+      token,
+      user: {
+        id: user.id,
+        loginId: user.loginId,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/auth/send-login-otp (Dispatches real-time OTP for signing in)
+router.post('/send-login-otp', async (req, res, next) => {
+  try {
+    const identifier = (req.body.loginOrEmail || req.body.loginId || req.body.email || '').trim();
+
+    if (!identifier) {
+      return res.status(400).json({ message: 'Please enter your registered Email or Login ID.' });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { loginId: identifier },
+          { email: identifier },
+        ],
+      },
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        message: 'This email or Login ID is not registered. Please sign up first.',
+      });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    pendingLoginOtps.set(user.id, {
+      otp,
+      expiresAt,
+      email: user.email,
+    });
+
+    console.log(`[AUTH] Real-Time Login OTP for ${user.email} (${user.loginId}): ${otp}`);
+
+    res.json({
+      message: `A 6-digit real-time verification OTP has been sent to ${user.email}.`,
+      otp, // included for instantaneous local & Render real-time UI display & simulation
+      email: user.email,
+      userId: user.id,
+      expiresIn: '10 minutes',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/auth/login-with-otp (Verifies real-time OTP and logs in)
+router.post('/login-with-otp', async (req, res, next) => {
+  try {
+    const identifier = (req.body.loginOrEmail || req.body.loginId || req.body.email || '').trim();
+    const { otp } = req.body;
+
+    if (!identifier) {
+      return res.status(400).json({ message: 'Please enter your registered Email or Login ID.' });
+    }
+
+    if (!otp || String(otp).trim().length !== 6) {
+      return res.status(400).json({ message: 'Please enter the 6-digit verification OTP.' });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { loginId: identifier },
+          { email: identifier },
+        ],
+      },
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        message: 'This email or Login ID is not registered. Please sign up first.',
+      });
+    }
+
+    const pending = pendingLoginOtps.get(user.id);
+    if (!pending) {
+      return res.status(400).json({
+        message: 'No login OTP was requested or code has expired. Please request a new OTP.',
+      });
+    }
+
+    if (Date.now() > pending.expiresAt) {
+      pendingLoginOtps.delete(user.id);
+      return res.status(400).json({
+        message: 'This OTP has expired. Please request a new code.',
+      });
+    }
+
+    if (pending.otp !== String(otp).trim()) {
+      return res.status(401).json({
+        message: 'Incorrect OTP verification code. Please check and try again.',
+      });
+    }
+
+    // OTP verified: clear it
+    pendingLoginOtps.delete(user.id);
+
+    // Enforce role consistency (Siya Bhosle = MANAGER, others = STAFF)
+    const expectedRole = resolveUserRole(user.name, user.email, user.loginId);
+    if (user.role !== expectedRole) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { role: expectedRole },
+      });
+      user.role = expectedRole;
+    }
+
+    const token = jwt.sign(
+      { id: user.id, loginId: user.loginId, email: user.email, name: user.name, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      message: `Signed in successfully as ${user.role}!`,
       token,
       user: {
         id: user.id,
