@@ -1,0 +1,12 @@
+{
+  "name": "stocksense-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "StockSense - Root wrapper for zero-config Render deployments",
+  "scripts": {
+    "postinstall": "cd backend && npm install",
+    "build": "cd backend && npm run build",
+    "seed": "cd backend && npm run seed",
+    "start": "cd backend && npm start"
+  }
+}
