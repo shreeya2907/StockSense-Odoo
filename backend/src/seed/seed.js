@@ -25,23 +25,22 @@ async function seed() {
 
     console.log('Database wiped for clean idempotent seeding.');
 
-    // 1. Create Demo User
-    // Password requirements: >=8 chars, 1 uppercase, 1 lowercase, 1 special char
-    const demoPassword = 'Password@123';
+    // 1. Create Default Manager User (Siya Bhosle)
+    const managerPassword = 'Password@123';
     const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(demoPassword, salt);
+    const passwordHash = await bcrypt.hash(managerPassword, salt);
 
     const user = await prisma.user.create({
       data: {
-        loginId: 'demo01',
-        email: 'demo@stocksense.io',
-        name: 'Alex Morgan (Manager)',
+        loginId: 'siyabhosale',
+        email: 'siya.bhosale19@gmail.com',
+        name: 'Siya Bhosle',
         role: 'MANAGER',
         passwordHash,
       },
     });
 
-    console.log(`Demo user created: loginId = demo01 | password = ${demoPassword}`);
+    console.log(`Default Manager created: loginId = siyabhosale | email = siya.bhosale19@gmail.com | role = MANAGER`);
 
     // 2. Create Warehouses
     const wh1 = await prisma.warehouse.create({

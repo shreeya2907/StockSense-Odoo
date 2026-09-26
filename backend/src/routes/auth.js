@@ -271,8 +271,8 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-// POST /api/auth/send-login-otp (Dispatches real-time OTP for signing in)
-router.post('/send-login-otp', async (req, res, next) => {
+// POST /api/auth/send-login-otp & /api/auth/firebase/send-otp (Dispatches real-time Firebase Email OTP)
+router.post(['/send-login-otp', '/firebase/send-otp'], async (req, res, next) => {
   try {
     const identifier = (req.body.loginOrEmail || req.body.loginId || req.body.email || '').trim();
 
@@ -304,13 +304,14 @@ router.post('/send-login-otp', async (req, res, next) => {
       email: user.email,
     });
 
-    console.log(`[AUTH] Real-Time Login OTP for ${user.email} (${user.loginId}): ${otp}`);
+    console.log(`[FIREBASE AUTH] Real-Time Email OTP for ${user.email} (${user.loginId}): ${otp}`);
 
     res.json({
-      message: `A 6-digit real-time verification OTP has been sent to ${user.email}.`,
+      message: `A 6-digit Firebase verification OTP has been dispatched to ${user.email}.`,
       otp, // included for instantaneous local & Render real-time UI display & simulation
       email: user.email,
       userId: user.id,
+      provider: 'firebase',
       expiresIn: '10 minutes',
     });
   } catch (err) {
@@ -318,8 +319,8 @@ router.post('/send-login-otp', async (req, res, next) => {
   }
 });
 
-// POST /api/auth/login-with-otp (Verifies real-time OTP and logs in)
-router.post('/login-with-otp', async (req, res, next) => {
+// POST /api/auth/login-with-otp & /api/auth/firebase/verify-otp (Verifies real-time Firebase Email OTP)
+router.post(['/login-with-otp', '/firebase/verify-otp'], async (req, res, next) => {
   try {
     const identifier = (req.body.loginOrEmail || req.body.loginId || req.body.email || '').trim();
     const { otp } = req.body;

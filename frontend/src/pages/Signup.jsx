@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
 import GoogleAuthButton from '../components/GoogleAuthButton';
 import OtpSection from '../components/OtpSection';
+import { sendFirebaseEmailOtp } from '../firebase';
 
 export default function Signup() {
   const [formData, setFormData] = useState({
@@ -52,17 +53,12 @@ export default function Signup() {
     setSendingOtp(true);
 
     try {
-      const res = await api.post('/auth/send-signup-otp', {
-        email: formData.email.trim(),
-        loginId: formData.loginId.trim() || undefined,
-        name: formData.name.trim() || undefined,
-      });
-
-      setDispatchedOtp(res.data.otp);
+      const data = await sendFirebaseEmailOtp(formData.email.trim(), 'signup');
+      setDispatchedOtp(data.otp);
       setResendCooldown(30);
-      toast.success(res.data.message || '6-digit real-time OTP dispatched to your email!');
+      toast.success(data.message || 'Firebase 6-digit real-time OTP dispatched to your email!');
     } catch (err) {
-      const msg = err.response?.data?.message || 'Failed to dispatch verification code';
+      const msg = err.response?.data?.message || err.message || 'Failed to dispatch verification code';
       setErrorMsg(msg);
       toast.error(msg);
     } finally {

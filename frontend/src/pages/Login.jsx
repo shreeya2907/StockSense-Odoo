@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Boxes, Lock, User, ArrowRight, ShieldCheck, KeyRound, AlertCircle } from 'lucide-react';
+import { Boxes, Lock, Mail, ArrowRight, ShieldCheck, KeyRound, AlertCircle, Flame } from 'lucide-react';
 import api from '../api/axiosInstance';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
 import GoogleAuthButton from '../components/GoogleAuthButton';
 import OtpSection from '../components/OtpSection';
+import { sendFirebaseEmailOtp, verifyFirebaseEmailOtp } from '../firebase';
 
 export default function Login() {
-  const [authMode, setAuthMode] = useState('otp'); // 'otp' or 'password' - default to OTP to showcase real-time OTP section!
-  const [loginId, setLoginId] = useState('');
+  const [authMode, setAuthMode] = useState('firebase-otp'); // 'firebase-otp' or 'password'
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [dispatchedOtp, setDispatchedOtp] = useState('');
@@ -30,11 +31,18 @@ export default function Login() {
     return () => clearTimeout(timer);
   }, [resendCooldown]);
 
-  // Request Real-Time Login OTP
-  const handleSendLoginOtp = async () => {
-    if (!loginId.trim()) {
-      setErrorMsg('Please enter your registered Email Address or Login ID first.');
-      toast.error('Enter Email or Login ID first');
+  // Request Real-Time Firebase Email OTP
+  const handleSendFirebaseOtp = async () => {
+    if (!email.trim()) {
+      setErrorMsg('Please enter your registered email address first.');
+      toast.error('Enter email address first');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setErrorMsg('Please enter a valid email address.');
+      toast.error('Invalid email format');
       return;
     }
 
@@ -42,14 +50,12 @@ export default function Login() {
     setSendingOtp(true);
 
     try {
-      const res = await api.post('/auth/send-login-otp', {
-        loginOrEmail: loginId.trim(),
-      });
-      setDispatchedOtp(res.data.otp);
+      const data = await sendFirebaseEmailOtp(email.trim(), 'login');
+      setDispatchedOtp(data.otp);
       setResendCooldown(30);
-      toast.success(res.data.message || 'Real-time OTP dispatched to your email!');
+      toast.success(data.message || 'Firebase 6-digit OTP sent to your email!');
     } catch (err) {
-      const msg = err.response?.data?.message || 'Failed to dispatch login OTP';
+      const msg = err.response?.data?.message || err.message || 'Failed to dispatch Firebase OTP';
       setErrorMsg(msg);
       toast.error(msg);
     } finally {
@@ -57,16 +63,16 @@ export default function Login() {
     }
   };
 
-  // Sign in via Real-Time OTP
-  const handleOtpLogin = async (e) => {
+  // Sign in via Firebase Email OTP
+  const handleFirebaseOtpLogin = async (e) => {
     e.preventDefault();
-    if (!loginId.trim()) {
-      setErrorMsg('Please enter your registered Email Address or Login ID.');
+    if (!email.trim()) {
+      setErrorMsg('Please enter your registered email address.');
       return;
     }
     const cleanOtp = (otp || '').replace(/\s+/g, '');
     if (cleanOtp.length !== 6) {
-      setErrorMsg('Please enter the complete 6-digit real-time OTP code.');
+      setErrorMsg('Please enter the complete 6-digit Firebase verification OTP.');
       toast.error('6-digit OTP is required');
       return;
     }
@@ -75,15 +81,12 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const res = await api.post('/auth/login-with-otp', {
-        loginOrEmail: loginId.trim(),
-        otp: cleanOtp,
-      });
-      login(res.data.user, res.data.token);
-      toast.success(`Welcome back, ${res.data.user.name} (${res.data.user.role})!`);
+      const data = await verifyFirebaseEmailOtp(email.trim(), cleanOtp);
+      login(data.user, data.token);
+      toast.success(`Welcome back, ${data.user.name} (${data.user.role})!`);
       navigate('/dashboard');
     } catch (err) {
-      const msg = err.response?.data?.message || 'OTP verification failed';
+      const msg = err.response?.data?.message || err.message || 'Firebase OTP verification failed';
       setErrorMsg(msg);
       toast.error(msg);
     } finally {
@@ -91,10 +94,10 @@ export default function Login() {
     }
   };
 
-  // Sign in via Password
+  // Sign in via Standard Password
   const handlePasswordLogin = async (e) => {
     e.preventDefault();
-    if (!loginId.trim()) {
+    if (!email.trim()) {
       setErrorMsg('Please enter your registered Email Address or Login ID.');
       return;
     }
@@ -108,7 +111,7 @@ export default function Login() {
 
     try {
       const res = await api.post('/auth/login', {
-        loginOrEmail: loginId.trim(),
+        loginOrEmail: email.trim(),
         password,
       });
       login(res.data.user, res.data.token);
@@ -121,12 +124,6 @@ export default function Login() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillDemo = () => {
-    setLoginId('demo01');
-    setPassword('Password@123');
-    setAuthMode('password');
   };
 
   return (
@@ -150,6 +147,7 @@ export default function Login() {
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
         }}
       >
+        {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '20px' }}>
           <div
             style={{
@@ -167,11 +165,11 @@ export default function Login() {
             Stock<span style={{ color: '#4F46E5' }}>Sense</span>
           </h2>
           <p style={{ color: '#64748B', fontSize: '0.86rem', marginTop: '4px' }}>
-            Real-Time Inventory & Warehouse Intelligence
+            Firebase-Secured Warehouse & Inventory Authentication
           </p>
         </div>
 
-        {/* Real-Time Sign-In Mode Switch Tabs */}
+        {/* Authentication Mode Switcher */}
         <div
           style={{
             display: 'grid',
@@ -185,11 +183,11 @@ export default function Login() {
           <button
             type="button"
             onClick={() => {
-              setAuthMode('otp');
+              setAuthMode('firebase-otp');
               setErrorMsg('');
             }}
             style={{
-              padding: '8px 12px',
+              padding: '8px 10px',
               borderRadius: '8px',
               fontSize: '0.82rem',
               fontWeight: 600,
@@ -199,13 +197,13 @@ export default function Login() {
               alignItems: 'center',
               justifyContent: 'center',
               gap: '6px',
-              background: authMode === 'otp' ? '#FFFFFF' : 'transparent',
-              color: authMode === 'otp' ? '#4F46E5' : '#64748B',
-              boxShadow: authMode === 'otp' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              background: authMode === 'firebase-otp' ? '#FFFFFF' : 'transparent',
+              color: authMode === 'firebase-otp' ? '#EA580C' : '#64748B',
+              boxShadow: authMode === 'firebase-otp' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
               transition: 'all 0.15s ease',
             }}
           >
-            <ShieldCheck size={16} /> Real-Time OTP
+            <Flame size={16} color={authMode === 'firebase-otp' ? '#EA580C' : '#64748B'} /> Firebase OTP
           </button>
           <button
             type="button"
@@ -214,7 +212,7 @@ export default function Login() {
               setErrorMsg('');
             }}
             style={{
-              padding: '8px 12px',
+              padding: '8px 10px',
               borderRadius: '8px',
               fontSize: '0.82rem',
               fontWeight: 600,
@@ -234,7 +232,7 @@ export default function Login() {
           </button>
         </div>
 
-        {/* Explicit Error Feedback Alert Box */}
+        {/* Direct Error Feedback Alert Box */}
         {errorMsg && (
           <div
             style={{
@@ -271,20 +269,20 @@ export default function Login() {
         >
           <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
           <span style={{ fontSize: '0.74rem', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            {authMode === 'otp' ? 'Or Sign In with Real-Time OTP' : 'Or Sign In with Password'}
+            {authMode === 'firebase-otp' ? 'Or Sign In with Firebase Email OTP' : 'Or Sign In with Password'}
           </span>
           <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
         </div>
 
-        {/* REAL-TIME OTP SIGN-IN FORM */}
-        {authMode === 'otp' ? (
-          <form onSubmit={handleOtpLogin}>
+        {/* FIREBASE EMAIL WITH OTP STRICT SIGN-IN */}
+        {authMode === 'firebase-otp' ? (
+          <form onSubmit={handleFirebaseOtpLogin}>
             <div className="form-group" style={{ marginBottom: '14px' }}>
               <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
-                Email Address or Login ID
+                Registered Email Address
               </label>
               <div style={{ position: 'relative' }}>
-                <User
+                <Mail
                   size={18}
                   style={{
                     position: 'absolute',
@@ -295,50 +293,57 @@ export default function Login() {
                   }}
                 />
                 <input
-                  type="text"
+                  type="email"
                   className="form-input"
                   style={{ paddingLeft: '38px', height: '40px' }}
-                  placeholder="e.g. siya.bhosale19@gmail.com or demo01"
-                  value={loginId}
-                  onChange={(e) => setLoginId(e.target.value)}
+                  placeholder="e.g. siya.bhosale19@gmail.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
                 />
               </div>
             </div>
 
-            {/* Dedicated Real-Time OTP Section */}
+            {/* Dedicated Real-Time Firebase OTP Section */}
             <OtpSection
               otp={otp}
               setOtp={setOtp}
-              onSendOtp={handleSendLoginOtp}
+              onSendOtp={handleSendFirebaseOtp}
               sending={sendingOtp}
               dispatchedOtp={dispatchedOtp}
               resendCooldown={resendCooldown}
-              title="Real-Time 6-Digit Login OTP"
-              subtitle="Enter your Email/ID above and click Send OTP to authenticate."
+              title="Firebase 6-Digit Verification OTP"
+              subtitle="Enter your registered email and click Send OTP."
               isMandatory={true}
-              emailValue={loginId}
+              emailValue={email}
             />
 
             <button
               type="submit"
               className="btn btn-primary"
-              style={{ width: '100%', padding: '11px', fontWeight: 600, fontSize: '0.9rem' }}
+              style={{
+                width: '100%',
+                padding: '11px',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+                background: '#EA580C',
+                borderColor: '#EA580C',
+              }}
               disabled={loading}
             >
-              {loading ? 'Verifying OTP...' : 'Verify OTP & Sign In'}
+              {loading ? 'Verifying with Firebase...' : 'Verify Firebase OTP & Sign In'}
               {!loading && <ArrowRight size={17} />}
             </button>
           </form>
         ) : (
-          /* PASSWORD SIGN-IN FORM */
+          /* STANDARD PASSWORD SIGN-IN */
           <form onSubmit={handlePasswordLogin}>
             <div className="form-group" style={{ marginBottom: '14px' }}>
               <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
                 Email Address or Login ID
               </label>
               <div style={{ position: 'relative' }}>
-                <User
+                <Mail
                   size={18}
                   style={{
                     position: 'absolute',
@@ -352,9 +357,9 @@ export default function Login() {
                   type="text"
                   className="form-input"
                   style={{ paddingLeft: '38px', height: '40px' }}
-                  placeholder="e.g. siya.bhosale19@gmail.com or demo01"
-                  value={loginId}
-                  onChange={(e) => setLoginId(e.target.value)}
+                  placeholder="e.g. siya.bhosale19@gmail.com or siyabhosale"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
                 />
               </div>
@@ -407,27 +412,9 @@ export default function Login() {
           </form>
         )}
 
-        <div style={{ marginTop: '16px', textAlign: 'center' }}>
-          <button
-            type="button"
-            onClick={fillDemo}
-            className="btn btn-secondary btn-sm"
-            style={{
-              width: '100%',
-              background: '#F8FAFC',
-              border: '1px dashed #CBD5E1',
-              color: '#475569',
-              fontSize: '0.8rem',
-              padding: '8px',
-            }}
-          >
-            ⚡ Auto-fill Demo Credentials (demo01)
-          </button>
-        </div>
-
         <div
           style={{
-            marginTop: '20px',
+            marginTop: '22px',
             textAlign: 'center',
             fontSize: '0.84rem',
             color: '#64748B',
@@ -437,7 +424,7 @@ export default function Login() {
         >
           Don't have an account?{' '}
           <Link to="/signup" style={{ color: '#4F46E5', fontWeight: 600, textDecoration: 'none' }}>
-            Sign up (Mandatory OTP)
+            Sign up (Mandatory Firebase OTP)
           </Link>
         </div>
       </div>
