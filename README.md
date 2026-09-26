@@ -7,8 +7,8 @@
 
 ## 🚀 Live Demo Credentials
 
-- **Login ID:** `demo01`
-- **Password:** `Password@123`
+- **Login ID:** `siyabhosale`
+- **Password:** `acc to the otp`
 - **Role:** Manager
 
 ---
