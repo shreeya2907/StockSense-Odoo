@@ -10,7 +10,7 @@
     "prisma:push": "prisma db push",
     "prisma:migrate": "prisma migrate deploy",
     "seed": "node src/seed/seed.js",
-    "build": "prisma generate"
+    "build": "node scripts/prepare-db.js && prisma generate && prisma db push"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
