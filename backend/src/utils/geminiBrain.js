@@ -1,3 +1,5 @@
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 require('dotenv').config();
 const { GoogleGenAI } = require('@google/genai');
 
@@ -16,17 +18,18 @@ if (apiKey && apiKey !== 'your_gemini_api_key_here') {
 }
 
 /**
- * Executes a Gemini prompt with automatic model fallback for 100% reliability
+ * Executes a Gemini prompt with automatic model fallback for 100% uptime & reliability
  */
 async function callGemini(contents, systemInstruction = '') {
   if (!aiClient) {
     throw new Error('Gemini API client is not configured.');
   }
 
+  // Valid active Gemini models in priority order
   const candidateModels = [
-    'gemini-3.5-flash-lite',
     'gemini-flash-latest',
     'gemini-3.8-flash',
+    'gemini-3.5-flash-lite',
   ];
 
   let lastError = null;
@@ -57,50 +60,86 @@ async function callGemini(contents, systemInstruction = '') {
 }
 
 /**
- * System prompt defining StockSense AI Warehouse Brain
+ * Human-like, empathetic, and operational System Persona for StockSense AI
  */
 const WAREHOUSE_BRAIN_SYSTEM = `
-You are the AI Warehouse Brain and Senior Inventory Strategist of StockSense (Real-Time Inventory, Simplified).
-You have access to live database context including on-hand stock counts, reorder thresholds, warehouse locations, and recent transactions.
-Your role:
-1. Provide concise, professional, data-backed operational answers for Inventory Managers and Warehouse Staff.
-2. Highlight stockout risks, safety buffer breaches, and urgent reorders.
-3. Suggest precise actions (e.g. transfer quantities between racks, exact reorder units).
-4. Be crisp, actionable, and warehouse-ready. Use bullet points or bold numbers where appropriate.
+You are StockSense AI — an experienced, deeply knowledgeable, and empathetic Senior Warehouse Operations Director and Supply Chain Partner.
+You are pair-managing this inventory system alongside the user (Warehouse Staff, Inventory Managers, and Business Owners).
+You have real-time access to the live database, on-hand balances, warehouse locations, reorder thresholds, and stock movements.
+
+Core Directives for Human-Like Interaction:
+1. SPEAK NATURALLY & PERSONABLY:
+   - Talk like a trusted, intelligent human colleague. Be warm, conversational, encouraging, and clear.
+   - Start with natural context (e.g., "I just reviewed our warehouse floor right now...", "Here is exactly how our inventory stands:", "Good question! Let's take a look at the data:").
+   - Avoid sounding robotic, cold, or mechanical.
+2. REASON DEEPLY & CONTEXTUALLY:
+   - Don't just list numbers; explain *what they mean* for the warehouse operations.
+   - If an item is out of stock or low, highlight the operational impact (e.g. shipment bottleneck, safety hazard, customer delivery risk).
+   - If stock is healthy, reassure the user and suggest optimizations.
+3. GROUNDED IN ACTUAL LIVE DATA:
+   - Always base your answers on the provided live warehouse context.
+   - Mention exact product names, SKUs, quantities, and specific warehouse locations (e.g., "Main Warehouse - Rack A").
+   - If a product is not in the warehouse, state that clearly and offer to help add it or track it.
+4. MULTILINGUAL & CULTURAL FLUENCY:
+   - Understand English, Hindi, and Hinglish queries effortlessly (e.g., "kaunsa product khatam ho raha hai?", "washing machine kahan hai?", "steel rods kitne bache hain?").
+   - Reply in natural, friendly English with cultural warmth and Hinglish understanding.
+5. PROACTIVE & ACTIONABLE:
+   - Always conclude with 1 to 3 concrete, practical recommendations (e.g. "Recommended Next Steps: 1. Create a purchase receipt for 50 units... 2. Transfer 15 units to Rack B...").
+6. VISUAL CLARITY:
+   - Use structured bullet points, short clean paragraphs, and bold text on numbers, locations, and SKUs so it's effortless to scan on mobile or desktop.
 `;
 
 /**
- * 1. AI Warehouse Copilot with live DB context
+ * 1. AI Warehouse Copilot with Multi-Turn Conversational Context & Live DB Snapshot
  */
-async function askGeminiCopilot(userQuery, inventoryContext) {
+async function askGeminiCopilot(userQuery, inventoryContext, conversationHistory = []) {
+  // Build recent dialogue context if history is provided
+  let historyPrompt = '';
+  if (Array.isArray(conversationHistory) && conversationHistory.length > 0) {
+    const recent = conversationHistory.slice(-6); // last 6 turns
+    historyPrompt = `\nRECENT CONVERSATION HISTORY:\n` +
+      recent.map(m => `${m.role === 'user' ? 'User' : 'Assistant (You)'}: ${m.text}`).join('\n') + '\n';
+  }
+
   const prompt = `
-CURRENT WAREHOUSE LIVE DATA CONTEXT:
-${JSON.stringify(inventoryContext, null, 2)}
+${historyPrompt}
+LIVE WAREHOUSE REAL-TIME CONTEXT:
+- Total Catalog Products: ${inventoryContext.totalCatalogProducts}
+- Total Inventory Asset Valuation: ${inventoryContext.totalInventoryValuation}
+- Active Warehouses & Storage Racks: ${JSON.stringify(inventoryContext.warehousesSummary || [], null, 2)}
+- Complete Product Catalog Status:
+${JSON.stringify(inventoryContext.allProducts || inventoryContext.sampleCatalog || [], null, 2)}
+- Critical Low & Out of Stock Alerts:
+${JSON.stringify(inventoryContext.lowStockSKUs || [], null, 2)}
+- Recent Inbound Shipments (Receipts):
+${JSON.stringify(inventoryContext.recentInboundReceipts || [], null, 2)}
+- Recent Outbound Customer Deliveries:
+${JSON.stringify(inventoryContext.recentDeliveries || [], null, 2)}
 
 USER QUESTION:
 "${userQuery}"
 
-Answer the user's question accurately based on the live inventory data provided above. If specific products or quantities are involved, mention their exact names, SKUs, and on-hand quantities. Suggest next best operational steps.
+Provide a warm, human-like, data-grounded, and thoroughly reasonable response to the user's question. Explain the current status, cite exact numbers and locations, and advise on next operational steps.
 `;
 
   return await callGemini(prompt, WAREHOUSE_BRAIN_SYSTEM);
 }
 
 /**
- * 2. AI Detective Root Cause Analysis
+ * 2. AI Detective Root Cause Analysis (Explaining Stock Discrepancies)
  */
 async function analyzeDiscrepancyAI(adjustmentData) {
   const prompt = `
-A stock adjustment variance was reported in the warehouse:
+A stock adjustment variance was physically discovered on the warehouse floor:
 - Reference: ${adjustmentData.reference}
 - Product: ${adjustmentData.productName} (SKU: ${adjustmentData.sku})
-- Location: ${adjustmentData.warehouse} - ${adjustmentData.location}
-- System Quantity Recorded: ${adjustmentData.systemQuantity}
+- Storage Location: ${adjustmentData.warehouse} — ${adjustmentData.location}
+- System Recorded Quantity: ${adjustmentData.systemQuantity}
 - Physical Counted Quantity: ${adjustmentData.countedQuantity}
-- Variance: ${adjustmentData.difference} units
+- Variance / Difference: ${adjustmentData.difference} units
 - Reason Categorized: ${adjustmentData.reason}
 
-Provide a 2-sentence Root Cause Analysis (RCA) and 1 specific corrective warehouse action.
+As Senior Operations Lead, write a thoughtful 3-sentence Human Root Cause Analysis explaining likely operational causes (e.g. misplacement, unrecorded dispatch, bin counting error) and recommend 1 immediate corrective action for the floor team.
 `;
 
   return await callGemini(prompt, WAREHOUSE_BRAIN_SYSTEM);
@@ -111,10 +150,13 @@ Provide a 2-sentence Root Cause Analysis (RCA) and 1 specific corrective warehou
  */
 async function generateDailyBriefAI(metricsContext) {
   const prompt = `
-DAILY WAREHOUSE AUDIT METRICS:
+DAILY WAREHOUSE AUDIT & OPERATIONAL METRICS:
 ${JSON.stringify(metricsContext, null, 2)}
 
-Generate a crisp 3-sentence executive summary and 3 bulleted priority actions for the Inventory Manager today.
+As Senior Operations Director, provide a warm, motivating morning briefing for the inventory management team:
+1. An Executive Summary (3 conversational sentences summarizing warehouse health, valuation, and immediate bottlenecks).
+2. Priority Action Items for Today (3 clear bullet points with specific SKU/rack focus).
+3. A brief motivational note for the warehouse floor team.
 `;
 
   return await callGemini(prompt, WAREHOUSE_BRAIN_SYSTEM);
@@ -125,10 +167,10 @@ Generate a crisp 3-sentence executive summary and 3 bulleted priority actions fo
  */
 async function assignWarehouseTasksAI(liveContext) {
   const prompt = `
-CURRENT WAREHOUSE LIVE STATUS:
+CURRENT WAREHOUSE LIVE STATUS & ALERTS:
 ${JSON.stringify(liveContext, null, 2)}
 
-Based on the live warehouse state above (low-stock SKUs, pending receipts, pending deliveries, storage imbalances), assign 3 to 5 concrete operational tasks to specific warehouse staff roles.
+Review the live warehouse state above (low-stock SKUs, pending receipts, pending deliveries, storage imbalances). Assign 3 to 5 realistic, high-priority operational tasks to specific warehouse team members.
 
 Respond with ONLY a valid JSON array of objects with the following schema:
 [
@@ -138,7 +180,7 @@ Respond with ONLY a valid JSON array of objects with the following schema:
     "priority": "CRITICAL | HIGH | MEDIUM",
     "title": "Short title describing the task",
     "target": "SKU name or location reference",
-    "instructions": "Clear step-by-step instructions for the assigned role",
+    "instructions": "Clear, friendly, step-by-step instructions for the assigned role",
     "estimatedTime": "e.g. 30 mins, 1 hour",
     "deadline": "e.g. End of shift, Immediate"
   }
@@ -198,4 +240,3 @@ module.exports = {
   assignWarehouseTasksAI,
   isGeminiConfigured: () => !!aiClient,
 };
-

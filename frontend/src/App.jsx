@@ -19,6 +19,7 @@ import Warehouses from './pages/Warehouses';
 import Locations from './pages/Locations';
 import Profile from './pages/Profile';
 import IntelligenceHub from './pages/IntelligenceHub';
+import FloatingCopilot from './components/FloatingCopilot';
 
 function AppLayout() {
   return (
@@ -27,6 +28,7 @@ function AppLayout() {
       <main className="main-content">
         <Outlet />
       </main>
+      <FloatingCopilot />
     </div>
   );
 }

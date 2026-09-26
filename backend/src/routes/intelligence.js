@@ -11,7 +11,7 @@ router.use(verifyJWT);
 // =========================================================================
 router.post('/copilot', async (req, res, next) => {
   try {
-    const { query } = req.body;
+    const { query, history } = req.body;
     if (!query || !query.trim()) {
       return res.status(400).json({ message: 'Query is required' });
     }
@@ -19,19 +19,25 @@ router.post('/copilot', async (req, res, next) => {
     const q = query.toLowerCase().trim();
 
     // Fetch baseline data for analysis
-    const products = await prisma.product.findMany({
-      include: { category: true, stocks: { include: { location: true, warehouse: true } } },
-    });
-    const receipts = await prisma.receipt.findMany({
-      take: 15,
-      orderBy: { createdAt: 'desc' },
-      include: { warehouse: true, items: { include: { product: true } } },
-    });
-    const deliveries = await prisma.delivery.findMany({
-      take: 15,
-      orderBy: { createdAt: 'desc' },
-      include: { warehouse: true, items: { include: { product: true } } },
-    });
+    const [products, warehouses, receipts, deliveries] = await Promise.all([
+      prisma.product.findMany({
+        include: { category: true, stocks: { include: { location: true, warehouse: true } } },
+        orderBy: { name: 'asc' },
+      }),
+      prisma.warehouse.findMany({
+        include: { locations: true },
+      }),
+      prisma.receipt.findMany({
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+        include: { warehouse: true, items: { include: { product: true } } },
+      }),
+      prisma.delivery.findMany({
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+        include: { warehouse: true, items: { include: { product: true } } },
+      }),
+    ]);
 
     let answer = '';
     let dataTable = null;
@@ -59,7 +65,7 @@ router.post('/copilot', async (req, res, next) => {
     if (q.includes('low stock') || q.includes('reorder') || q.includes('khatam') || q.includes('shortage')) {
       dataTable = {
         columns: ['Product Name', 'SKU', 'On Hand', 'Reorder Level', 'Unit Cost'],
-        rows: lowStockItems.map((p) => [p.name, p.sku, p.onHand, p.reorderLevel, `$${p.unitCost}`]),
+        rows: lowStockItems.map((p) => [p.name, p.sku, `${p.onHand} ${p.uom || ''}`, p.reorderLevel, `$${p.unitCost}`]),
       };
       suggestions = ['Check Supplier Reliability', 'Run What-If Restock Simulator', 'Assign Restocking Tasks'];
     } else if (q.includes('out of stock') || q.includes('zero') || q.includes('empty')) {
@@ -77,7 +83,7 @@ router.post('/copilot', async (req, res, next) => {
           .map((b) => [b.name, b.sku, b.onHand, `$${b.unitCost.toFixed(2)}`, `$${b.itemVal.toFixed(2)}`]),
       };
       suggestions = ['Show Highest Value Items', 'Export Valuation Summary', 'Analyze Storage Cost'];
-    } else if (q.includes('where') || q.includes('location') || q.includes('rack') || q.includes('steel') || q.includes('chair')) {
+    } else if (q.includes('where') || q.includes('location') || q.includes('rack') || q.includes('kahan') || q.includes('store')) {
       const matched = products.find(
         (p) => q.includes(p.name.toLowerCase()) || q.includes(p.sku.toLowerCase())
       ) || products[0];
@@ -85,7 +91,7 @@ router.post('/copilot', async (req, res, next) => {
       if (matched) {
         dataTable = {
           columns: ['Warehouse', 'Location/Rack', 'Quantity Available', 'Last Updated'],
-          rows: matched.stocks.map((s) => [s.warehouse.name, s.location.name, s.quantity, new Date(s.updatedAt).toLocaleDateString()]),
+          rows: matched.stocks.map((s) => [s.warehouse.name, s.location.name, `${s.quantity} ${matched.uom || ''}`, new Date(s.updatedAt).toLocaleDateString()]),
         };
         suggestions = [`Transfer ${matched.name}`, `Adjust Count for ${matched.name}`, `View Movement Journey`];
       }
@@ -97,12 +103,34 @@ router.post('/copilot', async (req, res, next) => {
       suggestions = ['Create New Receipt', 'Show Pending Receipts Only', 'Supplier Reliability'];
     }
 
-    // Call Google Gemini AI Brain with live inventory snapshot
+    // Call Google Gemini AI Brain with rich comprehensive live inventory snapshot
     if (geminiBrain.isGeminiConfigured()) {
       try {
         const liveSnapshot = {
           totalCatalogProducts: products.length,
-          totalInventoryValuation: `$${totalVal.toFixed(2)}`,
+          totalInventoryValuation: `$${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+          warehousesSummary: warehouses.map((w) => ({
+            code: w.code,
+            name: w.name,
+            locations: w.locations.map((l) => l.name),
+          })),
+          allProducts: products.map((p) => {
+            const onHand = p.stocks.reduce((acc, s) => acc + s.quantity, 0);
+            let status = 'IN_STOCK';
+            if (onHand === 0) status = 'OUT_OF_STOCK';
+            else if (onHand <= p.reorderLevel) status = 'LOW_STOCK';
+            return {
+              name: p.name,
+              sku: p.sku,
+              category: p.category?.name || 'General',
+              onHand,
+              uom: p.uom,
+              reorderLevel: p.reorderLevel,
+              unitCost: `$${p.unitCost}`,
+              status,
+              locations: p.stocks.map((s) => `${s.warehouse.code} ${s.location.name} (${s.quantity})`).join(', ') || 'Unassigned',
+            };
+          }),
           lowStockSKUs: lowStockItems.map((p) => ({
             name: p.name,
             sku: p.sku,
@@ -110,26 +138,22 @@ router.post('/copilot', async (req, res, next) => {
             reorderLevel: p.reorderLevel,
             locations: p.stocks.map((s) => `${s.warehouse.code}-${s.location.name} (${s.quantity})`).join(', '),
           })),
-          recentInboundReceipts: receipts.slice(0, 5).map((r) => ({
+          recentInboundReceipts: receipts.map((r) => ({
             ref: r.reference,
             supplier: r.supplierName,
             warehouse: r.warehouse.name,
             status: r.status,
+            itemCount: r.items.length,
           })),
-          recentDeliveries: deliveries.slice(0, 5).map((d) => ({
+          recentDeliveries: deliveries.map((d) => ({
             ref: d.reference,
             customer: d.customerName,
             status: d.status,
-          })),
-          sampleCatalog: products.slice(0, 10).map((p) => ({
-            name: p.name,
-            sku: p.sku,
-            onHand: p.stocks.reduce((acc, s) => acc + s.quantity, 0),
-            unitCost: `$${p.unitCost}`,
+            itemCount: d.items.length,
           })),
         };
 
-        answer = await geminiBrain.askGeminiCopilot(query, liveSnapshot);
+        answer = await geminiBrain.askGeminiCopilot(query, liveSnapshot, history);
       } catch (geminiErr) {
         console.warn('Gemini Copilot API error, falling back to rule engine:', geminiErr.message);
       }
@@ -138,9 +162,9 @@ router.post('/copilot', async (req, res, next) => {
     // Rule-based fallback if Gemini is not configured or failed
     if (!answer) {
       if (dataTable) {
-        answer = `Analyzed live database records for "${query}". Found pertinent items with current inventory status.`;
+        answer = `I analyzed our live warehouse database records for "${query}". Here is the detailed breakdown from the floor:`;
       } else {
-        answer = `StockSense holds **${products.length} products** with a total valuation of **$${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2 })}**. Ask me about low stock alerts, product locations, or recent shipments.`;
+        answer = `Our warehouse currently tracks **${products.length} products** with a total valuation of **$${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2 })}**. Feel free to ask me about stock quantities, specific rack locations, or shipment schedules!`;
       }
     }
 

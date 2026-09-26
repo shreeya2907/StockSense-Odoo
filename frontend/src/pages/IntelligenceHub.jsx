@@ -176,7 +176,11 @@ function CopilotTab() {
     setLoading(true);
 
     try {
-      const res = await api.post('/intelligence/copilot', { query: q });
+      const historyPayload = conversation.map((m) => ({
+        role: m.role,
+        text: m.text,
+      }));
+      const res = await api.post('/intelligence/copilot', { query: q, history: historyPayload });
       setConversation((prev) => [
         ...prev,
         {
@@ -194,6 +198,47 @@ function CopilotTab() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const renderFormatted = (text) => {
+    if (!text) return null;
+    return text.split('\n').map((line, lIdx) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('### ')) {
+        return <h4 key={lIdx} style={{ fontSize: '1rem', fontWeight: 700, margin: '10px 0 4px', color: '#1E293B' }}>{trimmed.replace('### ', '')}</h4>;
+      }
+      if (trimmed.startsWith('## ')) {
+        return <h3 key={lIdx} style={{ fontSize: '1.08rem', fontWeight: 700, margin: '12px 0 6px', color: '#0F172A' }}>{trimmed.replace('## ', '')}</h3>;
+      }
+      if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
+        const itemContent = trimmed.slice(2);
+        return (
+          <div key={lIdx} style={{ display: 'flex', gap: '8px', margin: '4px 0', paddingLeft: '4px' }}>
+            <span style={{ color: '#4F46E5', fontWeight: 700 }}>•</span>
+            <span dangerouslySetInnerHTML={{
+              __html: itemContent
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/`([^`]+)`/g, '<code style="background:#F1F5F9;padding:1px 4px;border-radius:4px;font-size:0.85em;">$1</code>')
+            }} />
+          </div>
+        );
+      }
+      if (trimmed.startsWith('---')) {
+        return <hr key={lIdx} style={{ border: 'none', borderTop: '1px solid #E2E8F0', margin: '10px 0' }} />;
+      }
+      if (!trimmed) return <div key={lIdx} style={{ height: '8px' }} />;
+      return (
+        <p
+          key={lIdx}
+          style={{ margin: '4px 0' }}
+          dangerouslySetInnerHTML={{
+            __html: line
+              .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+              .replace(/`([^`]+)`/g, '<code style="background:#F1F5F9;padding:1px 4px;border-radius:4px;font-size:0.85em;">$1</code>')
+          }}
+        />
+      );
+    });
   };
 
   return (
@@ -249,7 +294,11 @@ function CopilotTab() {
                     lineHeight: 1.5,
                   }}
                 >
-                  <p style={{ whiteSpace: 'pre-line' }}>{msg.text}</p>
+                  {msg.role === 'user' ? (
+                    <p style={{ margin: 0, fontWeight: 500 }}>{msg.text}</p>
+                  ) : (
+                    renderFormatted(msg.text)
+                  )}
 
                   {/* Render data table if present */}
                   {msg.dataTable && (
