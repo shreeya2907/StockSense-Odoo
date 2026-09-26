@@ -25,4 +25,15 @@ function verifyJWT(req, res, next) {
   }
 }
 
-module.exports = { verifyJWT, JWT_SECRET };
+function requireManager(req, res, next) {
+  if (!req.user || req.user.role !== 'MANAGER') {
+    return res.status(403).json({
+      message: 'Access Denied: Inventory Manager privileges required. Staff accounts are restricted from this action.',
+      requiredRole: 'MANAGER',
+      currentRole: req.user?.role || 'STAFF',
+    });
+  }
+  next();
+}
+
+module.exports = { verifyJWT, requireManager, JWT_SECRET };

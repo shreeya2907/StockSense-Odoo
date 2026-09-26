@@ -7,6 +7,9 @@ const { verifyJWT, JWT_SECRET } = require('../middleware/auth');
 
 const router = express.Router();
 
+// In-memory verification registry for pending signups (expires in 10 minutes)
+const pendingSignups = new Map();
+
 // Helper to validate password complexity: 1 uppercase, 1 lowercase, 1 special char, min 8 chars
 function validatePassword(password) {
   if (!password || password.length < 8) return false;
@@ -16,10 +19,34 @@ function validatePassword(password) {
   return hasUpper && hasLower && hasSpecial;
 }
 
-// POST /api/auth/signup
-router.post('/signup', async (req, res, next) => {
+/**
+ * Strict RBAC Rule:
+ * Only Siya Bhosle / Siya Bhosale is assigned MANAGER.
+ * All other names and emails (e.g. ganesh, shreeya, etc.) are strictly assigned STAFF.
+ */
+function isSiyaBhosle(name, email, loginId) {
+  const normName = (name || '').toLowerCase().replace(/[^a-z]/g, '');
+  const normEmail = (email || '').toLowerCase();
+  const normLogin = (loginId || '').toLowerCase().replace(/[^a-z]/g, '');
+
+  const isNameSiya = normName.includes('siya') && (normName.includes('bhosle') || normName.includes('bhosale'));
+  const isEmailSiya = normEmail.includes('siya') && (normEmail.includes('bhosle') || normEmail.includes('bhosale') || normEmail.startsWith('siya.'));
+  const isLoginSiya = normLogin.includes('siya') && (normLogin.includes('bhosle') || normLogin.includes('bhosale'));
+
+  return isNameSiya || isEmailSiya || isLoginSiya;
+}
+
+function resolveUserRole(name, email, loginId) {
+  if (isSiyaBhosle(name, email, loginId)) {
+    return 'MANAGER';
+  }
+  return 'STAFF'; // strictly STAFF for all other users (ganesh, shreeya, etc.)
+}
+
+// POST /api/auth/send-signup-otp (Step 1 of mandatory OTP Sign-Up)
+router.post('/send-signup-otp', async (req, res, next) => {
   try {
-    const { loginId, email, password, name, role } = req.body;
+    const { loginId, email, name } = req.body;
 
     // Validate loginId
     if (!loginId || loginId.length < 6 || loginId.length > 12) {
@@ -34,7 +61,83 @@ router.post('/signup', async (req, res, next) => {
 
     // Validate name
     if (!name || name.trim().length === 0) {
-      return res.status(400).json({ message: 'Name is required.' });
+      return res.status(400).json({ message: 'Full name is required.' });
+    }
+
+    // Check duplicate loginId
+    const existingLogin = await prisma.user.findUnique({ where: { loginId: loginId.trim() } });
+    if (existingLogin) {
+      return res.status(400).json({ message: 'This Login ID is already taken. Please pick another.' });
+    }
+
+    // Check duplicate email
+    const existingEmail = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+    if (existingEmail) {
+      return res.status(400).json({ message: 'This email is already registered. Please go to Sign In.' });
+    }
+
+    // Generate secure 6-digit numeric OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    const emailKey = email.trim().toLowerCase();
+    pendingSignups.set(emailKey, {
+      otp,
+      expiresAt,
+      loginId: loginId.trim(),
+      name: name.trim(),
+    });
+
+    console.log(`[AUTH] Mandatory Sign-Up OTP for ${email}: ${otp}`);
+
+    res.json({
+      message: 'A 6-digit verification code has been dispatched to your email.',
+      otp, // included for instantaneous local & Render verification testing
+      email,
+      expiresIn: '10 minutes',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/auth/signup (Step 2: Mandatory OTP Verification & Account Creation)
+router.post('/signup', async (req, res, next) => {
+  try {
+    const { loginId, email, password, name, otp } = req.body;
+
+    // Strict Mandatory OTP Check
+    if (!otp || String(otp).trim().length !== 6) {
+      return res.status(400).json({
+        message: '6-digit OTP verification code is mandatory to complete sign-up.',
+      });
+    }
+
+    const emailKey = (email || '').trim().toLowerCase();
+    const pending = pendingSignups.get(emailKey);
+
+    if (!pending) {
+      return res.status(400).json({
+        message: 'No pending verification found for this email. Please request an OTP first.',
+      });
+    }
+
+    if (Date.now() > pending.expiresAt) {
+      pendingSignups.delete(emailKey);
+      return res.status(400).json({
+        message: 'The verification OTP has expired. Please request a new code.',
+      });
+    }
+
+    if (pending.otp !== String(otp).trim()) {
+      return res.status(400).json({
+        message: 'Invalid OTP code. Please enter the correct 6-digit code.',
+      });
+    }
+
+    // Validate loginId
+    if (!loginId || loginId.length < 6 || loginId.length > 12) {
+      return res.status(400).json({ message: 'Login ID must be between 6 and 12 characters.' });
     }
 
     // Validate password
@@ -57,18 +160,25 @@ router.post('/signup', async (req, res, next) => {
       return res.status(400).json({ message: 'Email is already registered.' });
     }
 
+    // STRICT RBAC ASSIGNMENT:
+    // Only Siya Bhosle gets MANAGER. All others (ganesh, shreeya, etc.) are strictly STAFF.
+    const assignedRole = resolveUserRole(name, email, loginId);
+
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
     const user = await prisma.user.create({
       data: {
-        loginId,
-        email,
-        name,
+        loginId: loginId.trim(),
+        email: email.trim().toLowerCase(),
+        name: name.trim(),
         passwordHash,
-        role: role === 'MANAGER' ? 'MANAGER' : 'STAFF',
+        role: assignedRole,
       },
     });
+
+    // Clear verified pending OTP
+    pendingSignups.delete(emailKey);
 
     const token = jwt.sign(
       { id: user.id, loginId: user.loginId, email: user.email, name: user.name, role: user.role },
@@ -76,8 +186,10 @@ router.post('/signup', async (req, res, next) => {
       { expiresIn: '7d' }
     );
 
+    console.log(`[AUTH] User verified and stored in backend: ${user.name} (${user.email}) -> Role: ${user.role}`);
+
     res.status(201).json({
-      message: 'Account created successfully',
+      message: `Account created successfully with ${user.role} role!`,
       token,
       user: {
         id: user.id,
@@ -92,23 +204,53 @@ router.post('/signup', async (req, res, next) => {
   }
 });
 
-// POST /api/auth/login
+// POST /api/auth/login (With direct feedback for unregistered accounts and incorrect passwords)
 router.post('/login', async (req, res, next) => {
   try {
-    const { loginId, password } = req.body;
+    const identifier = (req.body.loginOrEmail || req.body.loginId || req.body.email || '').trim();
+    const { password } = req.body;
 
-    if (!loginId || !password) {
-      return res.status(400).json({ message: 'Invalid Login ID or Password' });
+    if (!identifier) {
+      return res.status(400).json({ message: 'Please enter your registered Email or Login ID.' });
     }
 
-    const user = await prisma.user.findUnique({ where: { loginId } });
+    if (!password) {
+      return res.status(400).json({ message: 'Please enter your password.' });
+    }
+
+    // Find account by loginId OR email
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { loginId: identifier },
+          { email: identifier },
+        ],
+      },
+    });
+
+    // Direct Feedback: Not registered
     if (!user) {
-      return res.status(400).json({ message: 'Invalid Login ID or Password' });
+      return res.status(401).json({
+        message: 'This email or Login ID is not registered. Please sign up first.',
+      });
     }
 
+    // Direct Feedback: Incorrect password
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid Login ID or Password' });
+      return res.status(401).json({
+        message: 'Incorrect password. Please verify your password or use forgot password.',
+      });
+    }
+
+    // Enforce role consistency (Siya Bhosle = MANAGER, others = STAFF)
+    const expectedRole = resolveUserRole(user.name, user.email, user.loginId);
+    if (user.role !== expectedRole) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { role: expectedRole },
+      });
+      user.role = expectedRole;
     }
 
     const token = jwt.sign(
@@ -133,7 +275,7 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-// POST /api/auth/send-otp (or /forgot-password)
+// POST /api/auth/send-otp (Password reset OTP)
 router.post(['/send-otp', '/forgot-password'], async (req, res, next) => {
   try {
     const { email } = req.body;
@@ -141,12 +283,12 @@ router.post(['/send-otp', '/forgot-password'], async (req, res, next) => {
       return res.status(400).json({ message: 'Email address is required.' });
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
     if (!user) {
-      return res.status(404).json({ message: 'No registered user found with this email.' });
+      return res.status(404).json({ message: 'No registered user found with this email address.' });
     }
 
-    // Generate a secure 6-digit numeric OTP
+    // Generate secure 6-digit numeric OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const resetTokenExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
@@ -162,7 +304,7 @@ router.post(['/send-otp', '/forgot-password'], async (req, res, next) => {
 
     res.json({
       message: 'A 6-digit verification code has been dispatched.',
-      otp, // included for seamless testing without waiting for SMTP setup
+      otp,
       resetToken: otp,
       expiresIn: '10 minutes',
     });
@@ -171,7 +313,7 @@ router.post(['/send-otp', '/forgot-password'], async (req, res, next) => {
   }
 });
 
-// POST /api/auth/verify-otp-reset (or /reset-password)
+// POST /api/auth/verify-otp-reset (Password Reset verification)
 router.post(['/verify-otp-reset', '/reset-password'], async (req, res, next) => {
   try {
     const { email, otp, resetToken, newPassword } = req.body;
@@ -189,11 +331,11 @@ router.post(['/verify-otp-reset', '/reset-password'], async (req, res, next) => 
     }
 
     const whereClause = {
-      resetToken: code,
+      resetToken: String(code).trim(),
       resetTokenExpiry: { gt: new Date() },
     };
     if (email) {
-      whereClause.email = email;
+      whereClause.email = email.trim().toLowerCase();
     }
 
     const user = await prisma.user.findFirst({ where: whereClause });
@@ -220,7 +362,7 @@ router.post(['/verify-otp-reset', '/reset-password'], async (req, res, next) => 
   }
 });
 
-// POST /api/auth/google (Google OAuth Sign In & Sign Up)
+// POST /api/auth/google (Google OAuth Sign In & Sign Up with RBAC)
 router.post('/google', async (req, res, next) => {
   try {
     const { credential, email, name, googleId } = req.body;
@@ -243,10 +385,14 @@ router.post('/google', async (req, res, next) => {
       return res.status(400).json({ message: 'Valid email from Google is required.' });
     }
 
+    userEmail = userEmail.trim().toLowerCase();
+
     // Find existing user by email
     let user = await prisma.user.findUnique({ where: { email: userEmail } });
 
-    // Auto-register user if signing up via Google for the first time
+    // Determine role: Only Siya Bhosle = MANAGER, all others = STAFF
+    const assignedRole = resolveUserRole(userName, userEmail, userEmail.split('@')[0]);
+
     if (!user) {
       let baseLogin = userEmail.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
       if (baseLogin.length < 6) baseLogin = baseLogin.padEnd(6, '0');
@@ -267,10 +413,18 @@ router.post('/google', async (req, res, next) => {
           email: userEmail,
           name: userName || 'Google User',
           passwordHash,
-          role: 'STAFF',
+          role: assignedRole,
         },
       });
-      console.log(`[AUTH] New user auto-registered via Google: ${user.email} (${user.loginId})`);
+      console.log(`[AUTH] Google user registered in DB: ${user.email} (${user.loginId}) -> Role: ${user.role}`);
+    } else {
+      // Sync role if necessary
+      if (user.role !== assignedRole) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { role: assignedRole },
+        });
+      }
     }
 
     const token = jwt.sign(

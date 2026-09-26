@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Boxes, Lock, User, Mail, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Boxes, Lock, User, Mail, ShieldCheck, KeyRound, RotateCw, Copy, Check, ArrowRight, ArrowLeft } from 'lucide-react';
 import api from '../api/axiosInstance';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
@@ -12,16 +12,29 @@ export default function Signup() {
     name: '',
     email: '',
     password: '',
-    role: 'STAFF',
+    confirmPassword: '',
   });
+  const [otp, setOtp] = useState('');
+  const [dispatchedOtp, setDispatchedOtp] = useState('');
+  const [step, setStep] = useState(1); // 1: Fill Details -> 2: Verify Mandatory 6-Digit OTP
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [copied, setCopied] = useState(false);
 
   const { login } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
 
-  const validate = () => {
+  useEffect(() => {
+    let timer;
+    if (resendCooldown > 0) {
+      timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  const validateStep1 = () => {
     const errs = {};
     if (!formData.loginId || formData.loginId.length < 6 || formData.loginId.length > 12) {
       errs.loginId = 'Login ID must be 6–12 characters long';
@@ -43,28 +56,99 @@ export default function Signup() {
         errs.password = 'Must contain uppercase, lowercase, and a special character';
       }
     }
+    if (formData.password !== formData.confirmPassword) {
+      errs.confirmPassword = 'Passwords do not match';
+    }
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = async (e) => {
+  // Step 1: Send Sign-Up OTP
+  const handleRequestOtp = async (e) => {
     e.preventDefault();
-    if (!validate()) return;
+    if (!validateStep1()) return;
+
     setLoading(true);
+    setErrors({});
 
     try {
-      const res = await api.post('/auth/signup', formData);
-      login(res.data.user, res.data.token);
-      toast.success('Account created successfully!');
-      navigate('/dashboard');
+      const res = await api.post('/auth/send-signup-otp', {
+        loginId: formData.loginId,
+        email: formData.email,
+        name: formData.name,
+      });
+
+      setDispatchedOtp(res.data.otp);
+      setStep(2);
+      setResendCooldown(30);
+      toast.success('6-digit OTP verification code dispatched!');
     } catch (err) {
-      const msg = err.response?.data?.message || 'Failed to create account';
+      const msg = err.response?.data?.message || 'Failed to dispatch verification code';
       toast.error(msg);
       setErrors((prev) => ({ ...prev, form: msg }));
     } finally {
       setLoading(false);
     }
   };
+
+  // Resend OTP
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0 || !formData.email) return;
+    setLoading(true);
+    try {
+      const res = await api.post('/auth/send-signup-otp', {
+        loginId: formData.loginId,
+        email: formData.email,
+        name: formData.name,
+      });
+      setDispatchedOtp(res.data.otp);
+      setResendCooldown(30);
+      toast.info('New 6-digit OTP code sent!');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to resend code');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 2: Verify OTP & Create Account
+  const handleVerifyAndSignup = async (e) => {
+    e.preventDefault();
+    if (otp.length !== 6) {
+      toast.error('Please enter a valid 6-digit OTP code.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await api.post('/auth/signup', {
+        loginId: formData.loginId,
+        email: formData.email,
+        name: formData.name,
+        password: formData.password,
+        otp: otp.trim(),
+      });
+
+      login(res.data.user, res.data.token);
+      toast.success(`Account verified! Welcome, ${res.data.user.name} (${res.data.user.role})`);
+      navigate('/dashboard');
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Invalid or expired OTP code';
+      toast.error(msg);
+      setErrors((prev) => ({ ...prev, otp: msg }));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    toast.info('OTP copied to clipboard!');
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const isSiya = formData.name.toLowerCase().includes('siya') || formData.email.toLowerCase().includes('siya');
 
   return (
     <div
@@ -80,7 +164,7 @@ export default function Signup() {
       <div
         style={{
           width: '100%',
-          maxWidth: '450px',
+          maxWidth: '460px',
           background: '#FFFFFF',
           borderRadius: '16px',
           padding: '36px',
@@ -98,13 +182,15 @@ export default function Signup() {
               marginBottom: '10px',
             }}
           >
-            <Boxes size={28} />
+            {step === 1 ? <Boxes size={28} /> : <KeyRound size={28} />}
           </div>
           <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#0F172A', margin: 0 }}>
-            Create Account
+            {step === 1 ? 'Create Account' : 'Verify 6-Digit OTP'}
           </h2>
           <p style={{ color: '#64748B', fontSize: '0.84rem', marginTop: '4px' }}>
-            Join the StockSense inventory operations network
+            {step === 1
+              ? 'Join the StockSense inventory operations network'
+              : `Mandatory verification code dispatched to ${formData.email}`}
           </p>
         </div>
 
@@ -124,111 +210,282 @@ export default function Signup() {
           </div>
         )}
 
-        {/* Google OAuth Sign Up */}
-        <div style={{ marginBottom: '18px' }}>
-          <GoogleAuthButton label="Sign up with Google" />
-        </div>
+        {step === 1 ? (
+          <>
+            {/* Google OAuth Sign Up */}
+            <div style={{ marginBottom: '18px' }}>
+              <GoogleAuthButton label="Sign up with Google" />
+            </div>
 
-        {/* Divider */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            margin: '18px 0',
-            gap: '12px',
-          }}
-        >
-          <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
-          <span style={{ fontSize: '0.74rem', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Or register with credentials
-          </span>
-          <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          <div className="form-group" style={{ marginBottom: '12px' }}>
-            <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
-              Login ID (6–12 characters)
-            </label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="e.g. staff_alex"
-              value={formData.loginId}
-              onChange={(e) => setFormData({ ...formData, loginId: e.target.value })}
-              required
-            />
-            {errors.loginId && <div className="form-error">{errors.loginId}</div>}
-          </div>
-
-          <div className="form-group" style={{ marginBottom: '12px' }}>
-            <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
-              Full Name
-            </label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="e.g. Alex Johnson"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              required
-            />
-            {errors.name && <div className="form-error">{errors.name}</div>}
-          </div>
-
-          <div className="form-group" style={{ marginBottom: '12px' }}>
-            <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
-              Email Address
-            </label>
-            <input
-              type="email"
-              className="form-input"
-              placeholder="alex@example.com"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              required
-            />
-            {errors.email && <div className="form-error">{errors.email}</div>}
-          </div>
-
-          <div className="form-group" style={{ marginBottom: '12px' }}>
-            <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
-              Role Assignment
-            </label>
-            <select
-              className="form-select"
-              value={formData.role}
-              onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+            {/* Divider */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                margin: '18px 0',
+                gap: '12px',
+              }}
             >
-              <option value="STAFF">Warehouse Staff</option>
-              <option value="MANAGER">Inventory Manager</option>
-            </select>
-          </div>
+              <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
+              <span style={{ fontSize: '0.74rem', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Or register with email OTP
+              </span>
+              <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
+            </div>
 
-          <div className="form-group" style={{ marginBottom: '16px' }}>
-            <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
-              Password
-            </label>
-            <input
-              type="password"
-              className="form-input"
-              placeholder="Min 8 chars (1 uppercase, 1 lowercase, 1 special)"
-              value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              required
-            />
-            {errors.password && <div className="form-error">{errors.password}</div>}
-          </div>
+            <form onSubmit={handleRequestOtp}>
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Shreeya or Ganesh"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  required
+                />
+                {errors.name && <div className="form-error">{errors.name}</div>}
+              </div>
 
-          <button
-            type="submit"
-            className="btn btn-primary"
-            style={{ width: '100%', padding: '11px', fontWeight: 600, fontSize: '0.9rem' }}
-            disabled={loading}
-          >
-            {loading ? 'Creating Account...' : 'Complete Sign Up'}
-          </button>
-        </form>
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  className="form-input"
+                  placeholder="name@example.com"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                />
+                {errors.email && <div className="form-error">{errors.email}</div>}
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
+                  Login ID (6–12 characters)
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. shreeya01 or ganesh24"
+                  value={formData.loginId}
+                  onChange={(e) => setFormData({ ...formData, loginId: e.target.value })}
+                  required
+                />
+                {errors.loginId && <div className="form-error">{errors.loginId}</div>}
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
+                  Create Password
+                </label>
+                <input
+                  type="password"
+                  className="form-input"
+                  placeholder="Min 8 chars, 1 uppercase, 1 lowercase, 1 special"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  required
+                />
+                {errors.password && <div className="form-error">{errors.password}</div>}
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '14px' }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
+                  Confirm Password
+                </label>
+                <input
+                  type="password"
+                  className="form-input"
+                  placeholder="Repeat your password"
+                  value={formData.confirmPassword}
+                  onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                  required
+                />
+                {errors.confirmPassword && <div className="form-error">{errors.confirmPassword}</div>}
+              </div>
+
+              {/* RBAC Notice */}
+              <div
+                style={{
+                  background: isSiya ? '#EEF2FF' : '#F8FAFC',
+                  border: `1px solid ${isSiya ? '#C7D2FE' : '#E2E8F0'}`,
+                  borderRadius: '8px',
+                  padding: '10px 12px',
+                  marginBottom: '16px',
+                  fontSize: '0.78rem',
+                  color: isSiya ? '#4338CA' : '#64748B',
+                }}
+              >
+                {isSiya ? (
+                  <span>👑 <strong>Inventory Manager Role:</strong> Recognized as Siya Bhosle. Full managerial and validation permissions will be granted.</span>
+                ) : (
+                  <span>👤 <strong>Role Assignment:</strong> Registered under <strong>Warehouse Staff</strong> (Administrative Manager role is reserved for Siya Bhosle).</span>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ width: '100%', padding: '11px', fontWeight: 600, fontSize: '0.9rem' }}
+                disabled={loading}
+              >
+                {loading ? 'Dispatching OTP...' : 'Send Verification OTP'}
+                {!loading && <ArrowRight size={16} />}
+              </button>
+            </form>
+          </>
+        ) : (
+          /* Step 2: Mandatory OTP Verification */
+          <form onSubmit={handleVerifyAndSignup}>
+            {/* Live Simulated OTP Preview Helper */}
+            {dispatchedOtp && (
+              <div
+                style={{
+                  background: '#F0FDF4',
+                  border: '1px solid #BBF7D0',
+                  borderRadius: '10px',
+                  padding: '12px 16px',
+                  marginBottom: '18px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '0.74rem', fontWeight: 600, color: '#166534', textTransform: 'uppercase' }}>
+                    StockSense Verification OTP
+                  </div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, letterSpacing: '4px', color: '#15803D', fontFamily: 'monospace' }}>
+                    {dispatchedOtp}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOtp(dispatchedOtp);
+                      toast.success('OTP auto-filled!');
+                    }}
+                    style={{
+                      background: '#DCFCE7',
+                      border: '1px solid #86EFAC',
+                      color: '#166534',
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Auto-Fill
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(dispatchedOtp)}
+                    style={{
+                      background: '#FFFFFF',
+                      border: '1px solid #CBD5E1',
+                      color: '#475569',
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      fontSize: '0.78rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    {copied ? <Check size={14} color="#16A34A" /> : <Copy size={14} />}
+                    {copied ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="form-group" style={{ marginBottom: '18px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: '0.86rem' }}>
+                  Enter 6-Digit OTP Code *
+                </label>
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={resendCooldown > 0 || loading}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: resendCooldown > 0 ? '#94A3B8' : '#4F46E5',
+                    fontSize: '0.78rem',
+                    cursor: resendCooldown > 0 ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: 0,
+                  }}
+                >
+                  <RotateCw size={12} />
+                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Code'}
+                </button>
+              </div>
+
+              <input
+                type="text"
+                maxLength={6}
+                className="form-input"
+                placeholder="• • • • • •"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, ''))}
+                style={{
+                  textAlign: 'center',
+                  fontSize: '1.4rem',
+                  fontWeight: 700,
+                  letterSpacing: '8px',
+                  fontFamily: 'monospace',
+                  padding: '10px',
+                }}
+                required
+              />
+              {errors.otp && <div className="form-error">{errors.otp}</div>}
+              <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginTop: '6px', textAlign: 'center' }}>
+                Mandatory OTP verification is required to activate and save your account in the database.
+              </span>
+            </div>
+
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '12px', fontWeight: 600, fontSize: '0.92rem' }}
+              disabled={loading || otp.length !== 6}
+            >
+              {loading ? 'Verifying & Creating Account...' : 'Verify OTP & Complete Sign-Up'}
+            </button>
+
+            <div style={{ textAlign: 'center', marginTop: '16px' }}>
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#64748B',
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <ArrowLeft size={14} /> Back to Edit Details
+              </button>
+            </div>
+          </form>
+        )}
 
         <div
           style={{

@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../db');
-const { verifyJWT } = require('../middleware/auth');
+const { verifyJWT, requireManager } = require('../middleware/auth');
 const { generateReference } = require('../utils/referenceGenerator');
 const { validateAdjustment } = require('../utils/stockEngine');
 
@@ -124,8 +124,8 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// POST /api/adjustments/:id/validate
-router.post('/:id/validate', async (req, res, next) => {
+// POST /api/adjustments/:id/validate (Manager Privilege Required)
+router.post('/:id/validate', requireManager, async (req, res, next) => {
   try {
     const validated = await validateAdjustment(req.params.id, req.user.id);
     res.json({

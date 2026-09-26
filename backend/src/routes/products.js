@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../db');
-const { verifyJWT } = require('../middleware/auth');
+const { verifyJWT, requireManager } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -92,8 +92,8 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-// POST /api/products
-router.post('/', async (req, res, next) => {
+// POST /api/products (Manager Privilege Required)
+router.post('/', requireManager, async (req, res, next) => {
   try {
     const {
       name,
@@ -232,8 +232,8 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// PUT /api/products/:id
-router.put('/:id', async (req, res, next) => {
+// PUT /api/products/:id (Manager Privilege Required)
+router.put('/:id', requireManager, async (req, res, next) => {
   try {
     const {
       name,

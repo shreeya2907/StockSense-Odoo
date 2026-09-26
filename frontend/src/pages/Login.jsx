@@ -22,12 +22,16 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const res = await api.post('/auth/login', { loginId, password });
+      const res = await api.post('/auth/login', {
+        loginId,
+        email: loginId,
+        password,
+      });
       login(res.data.user, res.data.token);
-      toast.success(`Welcome back, ${res.data.user.name}!`);
+      toast.success(`Welcome back, ${res.data.user.name} (${res.data.user.role})!`);
       navigate('/dashboard');
     } catch (err) {
-      const msg = err.response?.data?.message || 'Invalid Login ID or Password';
+      const msg = err.response?.data?.message || 'Invalid Email / Login ID or Password';
       setErrorMsg(msg);
       toast.error(msg);
     } finally {
@@ -114,7 +118,7 @@ export default function Login() {
         >
           <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
           <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Or sign in with ID
+            Or sign in with Email or ID
           </span>
           <div style={{ flex: 1, height: '1px', background: '#E2E8F0' }} />
         </div>
@@ -122,7 +126,7 @@ export default function Login() {
         <form onSubmit={handleSubmit}>
           <div className="form-group" style={{ marginBottom: '14px' }}>
             <label className="form-label" style={{ fontWeight: 600, fontSize: '0.84rem' }}>
-              Login ID
+              Email Address or Login ID
             </label>
             <div style={{ position: 'relative' }}>
               <User
@@ -139,7 +143,7 @@ export default function Login() {
                 type="text"
                 className="form-input"
                 style={{ paddingLeft: '38px', height: '40px' }}
-                placeholder="e.g. demo01"
+                placeholder="e.g. name@example.com or demo01"
                 value={loginId}
                 onChange={(e) => setLoginId(e.target.value)}
                 required

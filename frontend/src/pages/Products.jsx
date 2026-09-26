@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Search, Package } from 'lucide-react';
+import { Plus, Edit2, Search, Package, ShieldAlert } from 'lucide-react';
 import api from '../api/axiosInstance';
+import { useAuth } from '../context/AuthContext';
 import Topbar from '../components/Topbar';
 import FilterBar from '../components/FilterBar';
 import DataTable from '../components/DataTable';
@@ -33,6 +34,8 @@ export default function Products() {
     initialQuantity: 0,
   });
   const [saving, setSaving] = useState(false);
+  const { user } = useAuth();
+  const isManager = user?.role === 'MANAGER';
 
   const toast = useToast();
 
@@ -120,6 +123,10 @@ export default function Products() {
 
   const handleSave = async (e) => {
     e.preventDefault();
+    if (!isManager) {
+      toast.error('Access Denied: Only Manager (Siya Bhosle) can add or edit products.');
+      return;
+    }
     if (!formData.name || !formData.sku || !formData.categoryId) {
       toast.error('Name, SKU, and Category are required');
       return;
@@ -212,13 +219,29 @@ export default function Products() {
       header: 'Actions',
       key: 'actions',
       render: (p) => (
-        <button
-          className="btn btn-secondary btn-sm"
-          onClick={() => openEditModal(p)}
-          title="Edit Product"
-        >
-          <Edit2 size={14} /> Edit
-        </button>
+        isManager ? (
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => openEditModal(p)}
+            title="Edit Product"
+          >
+            <Edit2 size={14} /> Edit
+          </button>
+        ) : (
+          <span
+            style={{
+              fontSize: '0.75rem',
+              color: '#64748B',
+              background: '#F1F5F9',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              border: '1px solid #CBD5E1',
+            }}
+            title="Staff members have read-only catalog access"
+          >
+            Read Only
+          </span>
+        )
       ),
     },
   ];
@@ -226,9 +249,20 @@ export default function Products() {
   return (
     <div>
       <Topbar title="Product Catalog & Stock">
-        <button className="btn btn-primary btn-sm" onClick={openAddModal}>
-          <Plus size={16} /> Add Product
-        </button>
+        {isManager ? (
+          <button className="btn btn-primary btn-sm" onClick={openAddModal}>
+            <Plus size={16} /> Add Product
+          </button>
+        ) : (
+          <button
+            className="btn btn-secondary btn-sm"
+            style={{ opacity: 0.8, cursor: 'not-allowed' }}
+            onClick={() => toast.error('Access Denied: Only Manager (Siya Bhosle) can add new products. Staff has read-only catalog access.')}
+            title="Manager privilege required (Siya Bhosle)"
+          >
+            <ShieldAlert size={14} color="#F59E0B" /> Add Product (Manager Only)
+          </button>
+        )}
       </Topbar>
 
       <div className="page-body">

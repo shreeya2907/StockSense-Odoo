@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../db');
-const { verifyJWT } = require('../middleware/auth');
+const { verifyJWT, requireManager } = require('../middleware/auth');
 const { generateReference } = require('../utils/referenceGenerator');
 const { validateTransfer } = require('../utils/stockEngine');
 
@@ -133,8 +133,8 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// POST /api/transfers/:id/validate
-router.post('/:id/validate', async (req, res, next) => {
+// POST /api/transfers/:id/validate (Manager Privilege Required)
+router.post('/:id/validate', requireManager, async (req, res, next) => {
   try {
     const validated = await validateTransfer(req.params.id, req.user.id);
     res.json({

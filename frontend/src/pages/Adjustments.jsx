@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Check, Eye } from 'lucide-react';
+import { Plus, Check, Eye, ShieldAlert } from 'lucide-react';
 import api from '../api/axiosInstance';
+import { useAuth } from '../context/AuthContext';
 import Topbar from '../components/Topbar';
 import FilterBar from '../components/FilterBar';
 import DataTable from '../components/DataTable';
@@ -37,6 +38,8 @@ export default function Adjustments() {
     loading: false,
   });
 
+  const { user } = useAuth();
+  const isManager = user?.role === 'MANAGER';
   const toast = useToast();
 
   const fetchAdjustments = async () => {
@@ -152,6 +155,11 @@ export default function Adjustments() {
   };
 
   const executeActionConfirm = async () => {
+    if (!isManager) {
+      toast.error('Access Denied: Only Manager (Siya Bhosle) can validate adjustments.');
+      setActionConfirm({ isOpen: false, adjustmentId: null, loading: false });
+      return;
+    }
     setActionConfirm((prev) => ({ ...prev, loading: true }));
     try {
       const res = await api.post(`/adjustments/${actionConfirm.adjustmentId}/validate`);
@@ -223,13 +231,32 @@ export default function Adjustments() {
       key: 'actions',
       render: (a) =>
         a.status === 'DRAFT' && (
-          <button
-            className="btn btn-success btn-sm"
-            onClick={() => triggerValidate(a)}
-            title="Reconcile Physical Count"
-          >
-            <Check size={14} /> Validate
-          </button>
+          isManager ? (
+            <button
+              className="btn btn-success btn-sm"
+              onClick={() => triggerValidate(a)}
+              title="Reconcile Physical Count"
+            >
+              <Check size={14} /> Validate
+            </button>
+          ) : (
+            <span
+              style={{
+                fontSize: '0.75rem',
+                color: '#64748B',
+                background: '#F8FAFC',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                border: '1px solid #E2E8F0',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              title="Only Manager (Siya Bhosle) can validate inventory adjustments"
+            >
+              <ShieldAlert size={12} color="#F59E0B" /> Manager Req.
+            </span>
+          )
         ),
     },
   ];
